@@ -3,6 +3,7 @@
 #include <zconf.h>
 #include <sys/socket.h>
 #include <pthread.h>
+#include <unistd.h>
 
 int startup(u_short port);
 
@@ -64,6 +65,12 @@ int startup(u_short port) {
 void *accept_request(void *client_sock) {
     std::cout << "client_sock ";
     std::cout << client_sock << std::endl;
+
+    char buf[512];
+    // todo 会溢出吗？
+    int tmp = (long)client_sock;
+    read(tmp, buf, sizeof(buf));
+    std::cout << buf << std::endl;
 
     return nullptr;
 }

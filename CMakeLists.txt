@@ -6,4 +6,4 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14")
 
 #include_directories(SYSTEM "/foo/bar")
 
-add_executable(http-server httpServer.cpp)
+add_executable(http-server httpServer.cpp Request.cpp Request.h)
