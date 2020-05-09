@@ -5,7 +5,9 @@ using std::string;
 class Request {
 
 public:
+    string method;
     string file_path;
+    string http_version;
     string host;
     string user_agent;
     string accept;
