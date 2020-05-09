@@ -4,12 +4,19 @@
 #include <sys/socket.h>
 #include <pthread.h>
 #include <unistd.h>
-#include <cstring>
+#include <string>
 #include <fstream>
+#include <sstream>
 #include <sys/stat.h>
 #include "Request.h"
 
 const string HTDOCS = "/Users/cg/data/code/wheel/cpp/http-server/htdocs";
+
+typedef struct {
+    int len;
+    int data_len;
+    string data;
+} PICTURE;
 
 int startup(u_short port);
 
@@ -20,6 +27,10 @@ void get_line(int sockfd, char *buf);
 string read_file(string file_path);
 
 inline bool file_exists(const std::string &name);
+
+bool file_is_picture(string name);
+
+PICTURE read_picture(string file_path);
 
 int main() {
     std::cout << "hello,world.I am a web server." << std::endl;
@@ -130,19 +141,60 @@ void *accept_request(void *client_sock) {
     }
 
     if (request.method == "GET") {
-        string content = read_file(full_file_path);
-        int content_len = content.size();
+        int content_len;
+        int is_picture = file_is_picture(full_file_path);
+        const char *content;
+        if (is_picture) {
+            PICTURE picture = read_picture(full_file_path);
+            content = picture.data.c_str();
+            content_len = picture.len;
+        } else {
+            string file_content = read_file(full_file_path);
+            content = file_content.c_str();
+            content_len = sizeof(content);
+        }
+
         if (content_len > 0) {
             strcpy(buf, "HTTP/1.1 200 OK\r\n");
-            std::cout << buf;
             send(tmp, buf, strlen(buf), 0);
-            sprintf(buf, "Content-Length:%d\r\n", content_len);
-            std::cout << buf;
-            send(tmp, buf, strlen(buf), 0);
+
+            if (is_picture) {
+//                strcpy(buf, "Content-Type: image/jpeg\r\n");
+//                std::cout << buf;
+//                send(tmp, buf, strlen(buf), 0);
+
+                string head =
+                        "Server: nginx\n"
+                        "Date: Sat, 09 May 2020 03:57:07 GMT\n"
+                        "Content-Type: image/jpeg\n";
+                head += "Content-Length: ";
+                head += std::to_string(content_len);
+                head += "\n";
+                head += "Last-Modified: Wed, 20 Nov 2019 07:27:46 GMT\n"
+                        "Connection: closed\n"
+                        "ETag: \"5dd4eaf2-1a28d\"\n"
+                        "Accept-Ranges: bytes\n";
+
+                send(tmp, head.c_str(), head.size(), 0);
+
+//                std::cout << "===================== start ===================" << std::endl;
+//                std::cout << head.c_str();
+//                std::cout << "===================== end ===================" << std::endl;
+
+
+            } else {
+                // do nothing
+
+            }
+//            sprintf(buf, "Content-Length:%d\r\n", content_len);
+//            std::cout << buf;
+//            send(tmp, buf, strlen(buf), 0);
             strcpy(buf, "\r\n");
-            std::cout << buf;
+//            std::cout << buf;
             send(tmp, buf, strlen(buf), 0);
-            send(tmp, content.c_str(), content_len, 0);
+//            std::cout << "content:";
+//            std::cout << content;
+            send(tmp, content, content_len, 0);
         } else {
             string response_line = "HTTP/1.1 204 No Content\r\n";
             response_line += "\r\n";
@@ -190,4 +242,85 @@ string read_file(string file_path) {
 inline bool file_exists(const std::string &name) {
     struct stat buffer;
     return (stat(name.c_str(), &buffer) == 0);
+}
+
+bool file_is_picture(string name) {
+
+    return true;
+}
+
+
+PICTURE read_picture(string file_path) {
+    string data;
+    using namespace std;
+    ifstream is(file_path, ios::in);
+//    ifstream is(file_path, ios::in | ios::binary);  // ok
+    // 2. 计算图片长度
+    is.seekg(0, is.end);
+    int len = is.tellg();
+    is.seekg(0, ios::beg);
+    stringstream buffer;
+    buffer << is.rdbuf();
+    PICTURE picture = {len, len, buffer.str()};
+    // 到此，图片已经成功的被读取到内存（buffer）中
+    return picture;
+}
+
+// error
+PICTURE read_picture2(string file_path) {
+    //图像数据长度
+    int length;
+    //文件指针
+    FILE *fp;
+    //输入要读取的图像名
+    //以二进制方式打开图像
+    if ((fp = fopen(file_path.c_str(), "rb")) == NULL) {
+        std::cout << "Open image failed!" << std::endl;
+        exit(0);
+    }
+    //获取图像数据总长度
+    fseek(fp, 0, SEEK_END);
+    length = ftell(fp);
+    rewind(fp);
+    //根据图像数据长度分配内存buffer
+    char *ImgBuffer = (char *) malloc(length * sizeof(char));
+    //将图像数据读入buffer
+    fread(ImgBuffer, length, 1, fp);
+    fclose(fp);
+    PICTURE picture = {length, sizeof(ImgBuffer), ImgBuffer};
+    return picture;
+}
+
+// error
+PICTURE read_picture3(string file_path) {
+    string data;
+    using namespace std;
+    ifstream is(file_path, ios::in);
+    // 2. 计算图片长度
+//    is.tellg();
+    is.seekg(0, is.end);
+    int len = is.tellg();
+    is.seekg(0, ios::beg);
+    // 3. 创建内存缓存区
+    char *buffer = new char[1024];
+//    string buffer;
+    int len_data = 0;
+    while (!is.eof()) {
+        is.read(buffer, 1024 * sizeof(char));
+        len_data += is.gcount();
+        data += buffer;
+    }
+    is.close();
+//    // 4. 读取图片
+//    while (is.read(buffer, sizeof(buffer))) {
+//        data += buffer;
+//        if (is.eof()) {
+//            break;
+//        }
+//    }
+    PICTURE picture = {len_data, len, data};
+    // 到此，图片已经成功的被读取到内存（buffer）中
+    delete[] buffer;
+
+    return picture;
 }
