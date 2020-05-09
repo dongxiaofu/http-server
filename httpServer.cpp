@@ -18,6 +18,12 @@ typedef struct {
     string data;
 } PICTURE;
 
+typedef struct {
+    int size;
+    string name;
+    const char *suffix;
+} FILE_META;
+
 int startup(u_short port);
 
 void *accept_request(void *client_sock);
@@ -31,6 +37,7 @@ inline bool file_exists(const std::string &name);
 bool file_is_picture(string name);
 
 PICTURE read_picture(string file_path);
+
 
 int main() {
     std::cout << "hello,world.I am a web server." << std::endl;
@@ -158,15 +165,30 @@ void *accept_request(void *client_sock) {
             strcpy(buf, "HTTP/1.1 200 OK\r\n");
             send(tmp, buf, strlen(buf), 0);
 
-            if (is_picture) {
-//                strcpy(buf, "Content-Type: image/jpeg\r\n");
-//                std::cout << buf;
-//                send(tmp, buf, strlen(buf), 0);
+            struct stat buf2;
+            stat(full_file_path.c_str(), &buf2);
+            FILE_META file_meta;
+            file_meta.size = buf2.st_size;
+            file_meta.name = request.file_path;
+            const char *suffix = strrchr(request.file_path.c_str(), '.');
+            suffix++;
+            file_meta.suffix = suffix;
 
-                string head =
-                        "Server: nginx\n"
-                        "Date: Sat, 09 May 2020 03:57:07 GMT\n"
-                        "Content-Type: image/jpeg\n";
+            string head =
+                    "Server: nginx\n"
+                    "Date: Sat, 09 May 2020 03:57:07 GMT\n";
+
+            if (strcasecmp(file_meta.suffix, "jpg") == 0) {
+                head += "Content-Type: image/";
+                head += "jpeg\r\n";
+            } else if (strcasecmp(file_meta.suffix, "png") == 0) {
+                head += "Content-Type: image/";
+                head += "png\r\n";
+            } else {
+                head += "Content-Type:text/html\r\n";
+            }
+
+            if (is_picture) {
                 head += "Content-Length: ";
                 head += std::to_string(content_len);
                 head += "\n";
@@ -262,6 +284,7 @@ PICTURE read_picture(string file_path) {
     stringstream buffer;
     buffer << is.rdbuf();
     PICTURE picture = {len, len, buffer.str()};
+    is.close();
     // 到此，图片已经成功的被读取到内存（buffer）中
     return picture;
 }
@@ -324,3 +347,4 @@ PICTURE read_picture3(string file_path) {
 
     return picture;
 }
+

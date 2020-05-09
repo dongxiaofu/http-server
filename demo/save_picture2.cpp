@@ -3,7 +3,7 @@
 #include<fstream>
 
 using namespace std;
-
+// 不能正确读取图片文件
 int main() {
 //    string FileDirect = "/Users/cg/data/code/wheel/cpp/http-server/htdocs/weixiao_nvhai-001.jpg";  //图像文件地址
     string FileDirect = "/Users/cg/data/code/wheel/cpp/http-server/demo/hello";
