@@ -38,6 +38,7 @@ bool file_is_picture(string name);
 
 PICTURE read_picture(string file_path);
 
+void sleep_ms(unsigned int secs);
 
 int main() {
     std::cout << "hello,world.I am a web server." << std::endl;
@@ -81,13 +82,15 @@ int startup(u_short port) {
     } catch (std::exception exception1) {
         exception1.what();
     }
-    listen(httpd, 5);
+    listen(httpd, 15);
 
     return httpd;
 }
 
 void *accept_request(void *client_sock) {
+    std::cout << "client_sock:" << client_sock << std::endl;
     char buf[512];
+    memset(buf, 0, 512);
     // todo 会溢出吗？
     int tmp = (long) client_sock;
     get_line(tmp, buf);
@@ -130,21 +133,26 @@ void *accept_request(void *client_sock) {
         response_line += "\r\n";
         response_line += content;
         send(tmp, response_line.c_str(), response_line.size(), 0);
+        close(tmp);
         return nullptr;
     }
 
     if (request.method == "GET") {
         int content_len;
-        int is_picture = file_is_picture(full_file_path);
+        bool is_picture = file_is_picture(full_file_path);
         const char *content;
         if (is_picture) {
+            std::cout << "picture:" << client_sock << full_file_path << std::endl;
             PICTURE picture = read_picture(full_file_path);
             content = picture.data.c_str();
             content_len = picture.len;
         } else {
+            std::cout << "file:" << client_sock << full_file_path << std::endl;
+
             string file_content = read_file(full_file_path);
             content = file_content.c_str();
-            content_len = sizeof(content);
+//            content_len = sizeof(content);
+            content_len = file_content.size();
         }
 
         if (content_len > 0) {
@@ -161,7 +169,8 @@ void *accept_request(void *client_sock) {
             file_meta.suffix = suffix;
 
             string head =
-                    "Server: cg-http-server/0.1\r\n";
+                    "Server: cg-http-server/0.1\r\n"
+                    "Connection: keep-alive\r\n";
             if (strcasecmp(file_meta.suffix, "jpg") == 0) {
                 head += "Content-Type: image/";
                 head += "jpeg\r\n";
@@ -170,6 +179,7 @@ void *accept_request(void *client_sock) {
                 head += "png\r\n";
             } else {
                 head += "Content-Type:text/html\r\n";
+                send(tmp, head.c_str(), head.size(), 0);
             }
 
             if (is_picture) {
@@ -191,6 +201,10 @@ void *accept_request(void *client_sock) {
             send(tmp, response_line.c_str(), response_line.size(), 0);
         }
     }
+
+    sleep_ms(1);
+    close(tmp);
+    std::cout << "关闭:" << tmp << std::endl;
 
     return nullptr;
 }
@@ -239,16 +253,15 @@ bool file_is_picture(string name) {
     const char *name_char = name.c_str();
     const char *suffix = strrchr(name_char, '.');
     suffix++;
-    if(strcasecmp(suffix, "jpeg") == 0){
+    if (strcasecmp(suffix, "jpeg") == 0) {
         return true;
     }
-    if(strcasecmp(suffix, "png")){
+    if (strcasecmp(suffix, "png") == 0) {
         return true;
     }
-    if(strcasecmp(suffix, "jpg")){
+    if (strcasecmp(suffix, "jpg") == 0) {
         return true;
     }
-
     return false;
 }
 
@@ -327,5 +340,12 @@ PICTURE read_picture3(string file_path) {
     delete[] buffer;
 
     return picture;
+}
+
+void sleep_ms(unsigned int secs) {
+    struct timeval tval;
+    tval.tv_sec = secs / 100000;
+    tval.tv_usec = (secs * 100000) % 1000000;
+    select(0, NULL, NULL, NULL, &tval);
 }
 
