@@ -100,6 +100,10 @@ void *accept_request(void *client_sock) {
     int k = 0;
     for (int i = 0; i < size; i++) {
         char c = buf[i];
+        /******************************************************************
+         * HTTP/1.1 与 200 之间有多个空格，这段代码能正常运行吗？
+         * 在头脑中运行，不能很快得出结果。
+         *****************************************************************/
         if (isspace(c)) {
             str[k] = '\0';
             if (strcasecmp(str, "GET") == 0) {
@@ -128,6 +132,9 @@ void *accept_request(void *client_sock) {
                 k = 0;
                 continue;
             }
+            // 处理这种情况：HTTP/1.1 与 200 之间有多个空格
+            k = 0;
+            continue;
         }
         str[k++] = c;
     }
