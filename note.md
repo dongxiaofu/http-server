@@ -1,7 +1,7 @@
 ##20200507
 ###接收get请求
 
-1.no known conversion from 'void (int)' to 'void * _Nullable (* _Nonnull)(void * _Nullable)' for 3rd argument
+1.`no known conversion from 'void (int)' to 'void * _Nullable (* _Nonnull)(void * _Nullable)' for 3rd argument`
 
 原因就是C语言编译器允许隐含性的将一个通用指针转换为任意类型的指针，包括const *而C＋＋不允许将const 转换为非const*，所以出错。
 
@@ -116,6 +116,75 @@ PICTURE read_picture(string file_path) {
 怀疑服务端`pthread_create`创建线程的数量有限制，排除。
 
 我实现的这个方法，一个tcp只能处理一个http事务，`Connection:keep-alive`并没有实现，不是真正的`http/1.1`。
+
+4.从`socket`读取实体主体数据卡住
+
+```
+string read_body(int socket_fd) {
+    std::cout << "start read body" << std::endl;
+    string body;
+//    char data[1024];
+    char c;
+    while (recv(socket_fd, &c, 1, 0) != -1) {
+        body += c;
+    }
+    std::cout << body;
+
+//    while (recv(socket_fd, data, sizeof(data), 0) != -1) {
+//        std::cout << data;
+//        body += data;
+//    }
+
+    return body;
+}
+```
+
+并非完全卡住，而是在读取完所有实体主体数据后，`recv`卡住，持续数秒后，进程退出。
+
+接收不到数据了，为什么不主动退出循环而是卡住等待客户端发送数据呢？
+
+之前打日志时出错，使我对该段代码的执行状况有错误的理解。
+
+卡住一段时间后，进程意外退出，`Process finished with exit code 11`。
+
+对比`Content-Length`值与实际接收到的数据的大小比较，若两者相等，主动退出循环。
+
+5.停止服务器后马上启动，为什么无法提供`http`服务？
+
+10多秒后再启动服务器，就正常了。
+
+6.用浏览器提交一次表单，POST请求，却产生三次POST请求
+
+这是为什么？
+
+使用postman提交请求，只产生一次POST请求。
+
+服务端逐个字符接收客户端数据，没有问题。一次性接收多个字符，也没有问题。
+
+逐个接收字符
+
+```
+char c;
+while (recv(socket_fd, &c, 1, 0) != -1) {
+    body += c;
+    if (body.size() == content_length) {
+        break;
+    }
+}
+```
+
+一次性接收多个字符
+
+```
+string body;
+char data[1024];
+while (recv(socket_fd, data, sizeof(char)*1024, 0) != -1) {
+    body += data;
+    if (body.size() == content_length) {
+        break;
+    }
+}
+```
 
 
 

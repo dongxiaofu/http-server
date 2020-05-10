@@ -40,7 +40,11 @@ PICTURE read_picture(string file_path);
 
 void sleep_ms(unsigned int secs);
 
+string read_body(int socket_fd, int content_length);
+
 int main() {
+    char c = 'A';
+    std::cout << &c << std::endl;
     std::cout << "hello,world.I am a web server." << std::endl;
     int server_sock = -1;
     int client_sock;
@@ -106,7 +110,7 @@ void *accept_request(void *client_sock) {
          *****************************************************************/
         if (isspace(c)) {
             str[k] = '\0';
-            if (strcasecmp(str, "GET") == 0) {
+            if (strcasecmp(str, "GET") == 0 || strcasecmp(str, "POST") == 0 || strcasecmp(str, "PUT") == 0) {
                 request.method += str;
                 k = 0;
                 continue;
@@ -117,13 +121,13 @@ void *accept_request(void *client_sock) {
             }
             if (strncasecmp(str, "/", 1) == 0) {
                 char *query_str = strrchr(str, '?');
-                if(query_str != NULL && strlen(query_str) > 1){
+                if (query_str != NULL && strlen(query_str) > 1) {
                     query_str++;
                     request.query_string = query_str;
                 }
 
-                for(int i = 0; i < strlen(str); i++){
-                    if(str[i] == '?'){
+                for (int i = 0; i < strlen(str); i++) {
+                    if (str[i] == '?') {
                         str[i] = '\0';
                         break;
                     }
@@ -137,6 +141,42 @@ void *accept_request(void *client_sock) {
             continue;
         }
         str[k++] = c;
+    }
+
+    std::cout << buf;
+
+    // 读取剩余的所有的请求行
+    while (1) {
+        get_line(tmp, buf);
+        string line = string(buf);
+        char tmp[] = "Content-Length";
+        if (strncasecmp(line.c_str(), tmp, strlen(tmp)) == 0) {
+            const char *content_length = strrchr(line.c_str(), ':');
+            content_length++;
+            for (int i = 0; i < strlen(content_length); i++) {
+                if (strcasecmp(&content_length[i], "") == 0) {
+                    content_length++;
+                } else {
+                    break;
+                }
+            }
+            request.content_length = content_length;
+//            char str[64];
+//            int k = 0;
+//            for(int i = 0; i < line.size(); i++){
+//                if(isspace(line[i])){
+//                    str[k] = '\0';
+//                    k = 0;
+//                    continue;
+//                }
+//                str[k++] = line[i];
+//            }
+        }
+
+        if (line == "\r\n") {
+            break;
+        }
+        std::cout << line;
     }
 
     string full_file_path = HTDOCS + request.file_path;
@@ -219,15 +259,29 @@ void *accept_request(void *client_sock) {
             response_line += "\r\n";
             send(tmp, response_line.c_str(), response_line.size(), 0);
         }
+    } else if (request.method == "POST") {
+        // 读取实体主体
+        string body = read_body(tmp, atoi(request.content_length.c_str()));
+        std::cout << "==============================body start=====================" << std::endl;
+        std::cout << body << std::endl;
+        std::cout << "==============================body end=====================" << std::endl;
     }
 
     sleep_ms(1);
     close(tmp);
-    std::cout << "关闭:" << tmp << std::endl;
+//    std::cout << "关闭:" << tmp << std::endl;
 
     return nullptr;
 }
 
+/**********************************************************************
+ * 只能读取http协议中的请求头
+ * 专业术语是叫请求头吗？
+ * char *buf能获取到函数内部的值。可是，我遇到过类似情况不能获得函数内部的值。
+ * 我当时认为：char *buf 是函数内部的局部变量，所以离开了函数，char *buf的
+ * 值就不是函数内部的值了。
+ * 现在重看，这个函数，不也符合"当时认为"吗？为什么又可以？记下这个问题。
+ **********************************************************************/
 void get_line(int sockfd, char *buf) {
     char c;
     int i = 0;
@@ -259,6 +313,8 @@ string read_file(string file_path) {
         data += line;
     }
 
+    infile.close();
+
     return data;
 }
 
@@ -284,7 +340,6 @@ bool file_is_picture(string name) {
     return false;
 }
 
-
 PICTURE read_picture(string file_path) {
     string data;
     using namespace std;
@@ -300,6 +355,26 @@ PICTURE read_picture(string file_path) {
     is.close();
     // 到此，图片已经成功的被读取到内存（buffer）中
     return picture;
+}
+
+void sleep_ms(unsigned int secs) {
+    struct timeval tval;
+    tval.tv_sec = secs / 100000;
+    tval.tv_usec = (secs * 100000) % 1000000;
+    select(0, NULL, NULL, NULL, &tval);
+}
+
+string read_body(int socket_fd, int content_length) {
+    string body;
+    char data[1024];
+    while (recv(socket_fd, data, sizeof(char)*1024, 0) != -1) {
+        body += data;
+        if (body.size() == content_length) {
+            break;
+        }
+    }
+
+    return body;
 }
 
 // error
@@ -360,11 +435,3 @@ PICTURE read_picture3(string file_path) {
 
     return picture;
 }
-
-void sleep_ms(unsigned int secs) {
-    struct timeval tval;
-    tval.tv_sec = secs / 100000;
-    tval.tv_usec = (secs * 100000) % 1000000;
-    select(0, NULL, NULL, NULL, &tval);
-}
-
