@@ -49,14 +49,10 @@ int main() {
     server_sock = startup(80);
     std::cout << "httpd running on port 80" << std::endl;
     while (1) {
-        std::cout << 2 << std::endl;
         client_sock = accept(server_sock, (struct sockaddr *) &client_name, (socklen_t *) &client_name_len);
-        std::cout << client_sock << std::endl;
         if (client_sock == -1) {
             perror("accept");
         }
-        std::cout << "client_sock:";
-        std::cout << client_sock << std::endl;
         void *tmp = (void *) (long) client_sock;
         if (pthread_create(&newthread, NULL, accept_request, tmp) != 0) {
             perror("pthread_create");
@@ -86,21 +82,15 @@ int startup(u_short port) {
         exception1.what();
     }
     listen(httpd, 5);
-    std::cout << "httpd:";
-    std::cout << httpd << std::endl;
 
     return httpd;
 }
 
 void *accept_request(void *client_sock) {
-    std::cout << "client_sock ";
-    std::cout << client_sock << std::endl;
-
     char buf[512];
     // todo 会溢出吗？
     int tmp = (long) client_sock;
     get_line(tmp, buf);
-    std::cout << buf << std::endl;
     int size = strlen(buf);
     Request request;
     char str[64];
@@ -127,10 +117,6 @@ void *accept_request(void *client_sock) {
         str[k++] = c;
     }
 
-    std::cout << "method:";
-    std::cout << request.method << std::endl;
-    std::cout << request.file_path << std::endl;
-    std::cout << request.http_version << std::endl;
     string full_file_path = HTDOCS + request.file_path;
     /*****************************************************************
      * 404 也有返回实体主体。有实体主体就必须有响应头Content-Length
@@ -140,9 +126,9 @@ void *accept_request(void *client_sock) {
         string response_line = "HTTP/1.1 404 Not Found\r\n";
         sprintf(buf, "Content-Length: %lu\r\n", content.size());
         response_line += buf;
+        response_line += "Server: cg-http-server/0.1\r\n";
         response_line += "\r\n";
         response_line += content;
-        std::cout << response_line.c_str() << std::endl;
         send(tmp, response_line.c_str(), response_line.size(), 0);
         return nullptr;
     }
@@ -175,9 +161,7 @@ void *accept_request(void *client_sock) {
             file_meta.suffix = suffix;
 
             string head =
-                    "Server: nginx\n"
-                    "Date: Sat, 09 May 2020 03:57:07 GMT\n";
-
+                    "Server: cg-http-server/0.1\r\n";
             if (strcasecmp(file_meta.suffix, "jpg") == 0) {
                 head += "Content-Type: image/";
                 head += "jpeg\r\n";
@@ -191,31 +175,15 @@ void *accept_request(void *client_sock) {
             if (is_picture) {
                 head += "Content-Length: ";
                 head += std::to_string(content_len);
-                head += "\n";
-                head += "Last-Modified: Wed, 20 Nov 2019 07:27:46 GMT\n"
-                        "Connection: closed\n"
-                        "ETag: \"5dd4eaf2-1a28d\"\n"
-                        "Accept-Ranges: bytes\n";
-
+                head += "\r\n";
                 send(tmp, head.c_str(), head.size(), 0);
-
-//                std::cout << "===================== start ===================" << std::endl;
-//                std::cout << head.c_str();
-//                std::cout << "===================== end ===================" << std::endl;
-
-
             } else {
-                // do nothing
-
+                sprintf(buf, "Content-Length:%d\r\n", content_len);
+                send(tmp, buf, strlen(buf), 0);
             }
-//            sprintf(buf, "Content-Length:%d\r\n", content_len);
-//            std::cout << buf;
-//            send(tmp, buf, strlen(buf), 0);
+
             strcpy(buf, "\r\n");
-//            std::cout << buf;
             send(tmp, buf, strlen(buf), 0);
-//            std::cout << "content:";
-//            std::cout << content;
             send(tmp, content, content_len, 0);
         } else {
             string response_line = "HTTP/1.1 204 No Content\r\n";
@@ -261,14 +229,27 @@ string read_file(string file_path) {
     return data;
 }
 
+// 这样能检测文件是否存在吗？
 inline bool file_exists(const std::string &name) {
     struct stat buffer;
     return (stat(name.c_str(), &buffer) == 0);
 }
 
 bool file_is_picture(string name) {
+    const char *name_char = name.c_str();
+    const char *suffix = strrchr(name_char, '.');
+    suffix++;
+    if(strcasecmp(suffix, "jpeg") == 0){
+        return true;
+    }
+    if(strcasecmp(suffix, "png")){
+        return true;
+    }
+    if(strcasecmp(suffix, "jpg")){
+        return true;
+    }
 
-    return true;
+    return false;
 }
 
 
