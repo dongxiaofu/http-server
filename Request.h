@@ -7,6 +7,7 @@ class Request {
 public:
     string method;
     string file_path;
+    string query_string;
     string http_version;
     string host;
     string user_agent;

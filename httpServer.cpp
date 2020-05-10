@@ -112,6 +112,18 @@ void *accept_request(void *client_sock) {
                 break;
             }
             if (strncasecmp(str, "/", 1) == 0) {
+                char *query_str = strrchr(str, '?');
+                if(query_str != NULL && strlen(query_str) > 1){
+                    query_str++;
+                    request.query_string = query_str;
+                }
+
+                for(int i = 0; i < strlen(str); i++){
+                    if(str[i] == '?'){
+                        str[i] = '\0';
+                        break;
+                    }
+                }
                 request.file_path += str;
                 k = 0;
                 continue;
