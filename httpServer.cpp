@@ -172,11 +172,10 @@ void *accept_request(void *client_sock) {
 //                str[k++] = line[i];
 //            }
         }
-
+        std::cout << line;
         if (line == "\r\n") {
             break;
         }
-        std::cout << line;
     }
 
     string full_file_path = HTDOCS + request.file_path;
@@ -269,7 +268,6 @@ void *accept_request(void *client_sock) {
 
     sleep_ms(1);
     close(tmp);
-//    std::cout << "关闭:" << tmp << std::endl;
 
     return nullptr;
 }
@@ -368,6 +366,7 @@ string read_body(int socket_fd, int content_length) {
     string body;
     char data[1024];
     while (recv(socket_fd, data, sizeof(char)*1024, 0) != -1) {
+        std::cout << data;
         body += data;
         if (body.size() == content_length) {
             break;

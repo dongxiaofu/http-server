@@ -186,6 +186,188 @@ while (recv(socket_fd, data, sizeof(char)*1024, 0) != -1) {
 }
 ```
 
+7.接收上传文件的表单提交的数据
+
+数据
+
+```
+POST /server.html HTTP/1.1
+Host: 127.0.0.1
+Connection: keep-alive
+Content-Length: 291042
+Pragma: no-cache
+Cache-Control: no-cache
+Upgrade-Insecure-Requests: 1
+Origin: http://127.0.0.1
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryPL3JKVDDvW4BBCCH
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.129 Safari/537.36
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9
+Sec-Fetch-Site: same-origin
+Sec-Fetch-Mode: navigate
+Sec-Fetch-User: ?1
+Sec-Fetch-Dest: document
+Referer: http://127.0.0.1/form.html
+Accept-Encoding: gzip, deflate, br
+Accept-Language: zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7,ja;q=0.6
+------WebKitFormBoundaryPL3JKVDDvW4BBCCH
+Content-Disposition: form-data; name="title"
+
+穿越时空的恋爱
+------WebKitFormBoundaryPL3JKVDDvW4BBCCH
+Content-Disposition: form-data; name="age"
+
+彻底撒富家大室发的说法
+------WebKitFormBoundaryPL3JKVDDvW4BBCCH
+Content-Disposition: form-data; name="pic"; filename="9-1602061H626.jpg"
+Content-Type: image/jpeg
+
+<图片数据，一段乱码>
+------WebKitFormBoundaryPL3JKVDDvW4BBCCH--
+```
+
+神奇，实体主体与请求行之间的分隔符不是`\r\n`。不是这样的。在服务端，我没有输出换行符。
+
+表单
+
+```
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>表单</title>
+</head>
+<body>
+<form action="./server.html" method="post">
+    <p><input type="text" name="title"></p>
+    <p><input type="text" name="age"></p>
+<!--    <p><input type="file" name="pic"></p>-->
+    <p><input type="submit"></p>
+</form>
+
+</body>
+</html>
+```
+
+服务端接收到的数据
+
+```
+POST /server.html HTTP/1.1
+Host: 127.0.0.1
+Connection: keep-alive
+Content-Length: 173
+Pragma: no-cache
+Cache-Control: no-cache
+Upgrade-Insecure-Requests: 1
+Origin: http://127.0.0.1
+Content-Type: application/x-www-form-urlencoded
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.129 Safari/537.36
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9
+Sec-Fetch-Site: same-origin
+Sec-Fetch-Mode: navigate
+Sec-Fetch-User: ?1
+Sec-Fetch-Dest: document
+Referer: http://127.0.0.1/form.html
+Accept-Encoding: gzip, deflate, br
+Accept-Language: zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7,ja;q=0.6
+
+title=%E7%A9%BF%E8%B6%8A%E6%97%B6%E7%A9%BA%E7%9A%84%E6%81%8B%E7%88%B1&age=%E5%BD%BB%E5%BA%95%E6%92%92%E5%AF%8C%E5%AE%B6%E5%A4%A7%E5%AE%A4%E5%8F%91%E7%9A%84%E8%AF%B4%E6%B3%95
+```
+
+表单
+
+```
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>表单</title>
+</head>
+<body>
+<form action="./server.html" method="post" enctype="multipart/form-data">
+    <p><input type="text" name="title"></p>
+    <p><input type="text" name="age"></p>
+<!--    <p><input type="file" name="pic"></p>-->
+    <p><input type="submit"></p>
+</form>
+
+</body>
+</html>
+```
+
+服务端接收到的数据
+
+```
+POST /server.html HTTP/1.1
+Host: 127.0.0.1
+Connection: keep-alive
+Content-Length: 280
+Pragma: no-cache
+Cache-Control: no-cache
+Upgrade-Insecure-Requests: 1
+Origin: http://127.0.0.1
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryn8OE4vY8st2mRIJC
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.129 Safari/537.36
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9
+Sec-Fetch-Site: same-origin
+Sec-Fetch-Mode: navigate
+Sec-Fetch-User: ?1
+Sec-Fetch-Dest: document
+Referer: http://127.0.0.1/form.html
+Accept-Encoding: gzip, deflate, br
+Accept-Language: zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7,ja;q=0.6
+
+------WebKitFormBoundaryn8OE4vY8st2mRIJC
+Content-Disposition: form-data; name="title"
+
+穿越时空的恋爱
+------WebKitFormBoundaryn8OE4vY8st2mRIJC
+Content-Disposition: form-data; name="age"
+
+彻底撒富家大室发的说法
+------WebKitFormBoundaryn8OE4vY8st2mRIJC--
+==============================body start=====================
+------WebKitFormBoundaryn8OE4vY8st2mRIJC
+Content-Disposition: form-data; name="title"
+
+穿越时空的恋爱
+------WebKitFormBoundaryn8OE4vY8st2mRIJC
+Content-Disposition: form-data; name="age"
+
+彻底撒富家大室发的说法
+------WebKitFormBoundaryn8OE4vY8st2mRIJC--
+
+==============================body end=====================
+
+```
+
+不解析POST请求数据，而是将这些数据转发给php等处理。
+
+## 实现fpm协议
+就是把动态请求转发给php。
+
+半年前实现过fpm协议，现在，忘记了百分之九十五。我不相信，理解了东西，就不会忘记，下次做就很容易。自己几个月前写的东西，时间久了，再次接触，有时看不懂。
+
+一定要做好笔记，不要相信记忆力。
+
+需要把请求行在内的所有数据转发给php，另外，需要传递数个从请求行内才能获取的数据。
+
+工作量主要在实现fpm协议，对照着原来的java代码翻译。
+
+
+
+## todo
+1. 实现`Connection: keep-alive`
+1. 实现`http2`
+1. 实现`https`
+1. 实现`fpm`
+1. 兼容`nginx`配置
+1. 实现`nginx`的工作机制：master进程接收请求，work进程处理请求
+1. 实现access_log
+1. 实现error_log
+1. 实现负载均衡
+1. 提高并发量
+
+
 
 
 
