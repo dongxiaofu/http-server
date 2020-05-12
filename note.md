@@ -361,12 +361,83 @@ Content-Disposition: form-data; name="age"
 
 以上是我看半年前的java代码实现后回忆内容。后面，我会根据java代码写出完全符合代码的文档。
 #### 实际实现
-##### 难点
-1. 将字符串转为二进制形式
+## 实现fcgi客户端难点
+### 将字符串转为二进制形式
 
 涉及到函数返回数组、遍历数组、数组传参。若使用C风格，后面两个，需要同时提供对应数组大小。
 
-2. 
+### 构造协议规定的格式的二进制数据，用c++语法实现，代码改写，调试。
+### 向php发送数据后，没有任何返回，哪里不对？如何调试？
+#### 无脑调试
+多次执行代码，结果不正确还是继续执行。这是导致低效的老毛病。
+#### 使用简单fcgi服务端
+下载了一个实现fcgi服务端的代码。我寄希望于查看该代码运行日志，检查我的fcgi客户端错在什么地方。
+但这个服务端代码本身有问题，我不能快速将之调整正确。最后放弃了这个思路。
+
+不过，这个代码，却导致我最终找到了错误原因。它使用`char`类型构造数据包。
+#### 看php-fpm日志
+##### gdb
+在mac上使用gdb查看进程的命令是：
+
+`sudo gdb <pid>`。
+
+用其他命令，遇到过错误：
+
+`Unable to find Mach task port for process-id 47072: (os/kern) failure (0x5).
+(please check gdb is codesigned - see taskgated(8)) `。
+
+gdb信息中没有可用于解决我的问题的有用信息。
+##### php-fpm.log
+执行有语法错误的php代码，能在这里看到一些日志：
+
+```
+[12-May-2020 17:21:17] WARNING: [pool www] child 71791 said into stderr: "NOTICE: PHP message: PHP Fatal error:  Cannot redeclare test() (previously declared in /Users/cg/data/www/cg/test.php:4) in /Users/cg/data/www/cg/test.php on line 6"
+[12-May-2020 17:21:17] WARNING: [pool www] child 71791 said into stderr: "NOTICE: PHP message: PHP Stack trace:"
+[12-May-2020 17:21:17] WARNING: [pool www] child 71791 said into stderr: "NOTICE: PHP message: PHP   1. {main}() /Users/cg/data/www/cg/test.php:0"
+[12-May-2020 17:21:17] WARNING: [pool www] child 71791 said into stderr: "NOTICE: PHP message: PHP   2. test() /Users/cg/data/www/cg/test.php:12"
+```
+
+*对检查fcgi客户端为何不正确，作用不大。唯一作用是：检测fcgi客户端能否与php-fpm正确交互，发送数据，接收返回数据。*
+
+在这之前，我无法确定我的fcgi客户端的错误是下面的哪个：
+
+1. 数据报不正确
+2. 网络发送方法不正确
+
+最开始，为了确定是哪个问题，我抓取了去年用java写的fcgi客户端发送的数据报，用本客户端发送，可总是接收不到任何数据。我没有猜测是哪个问题。
+
+#### 解决
+我使用正确的数据报，一个`int`数组，断点调试，发送到第二个数据的时候，程序意外退出，错误信息：
+
+`Terminated due to signal 13`，
+
+不断点运行，数据报全部发送到服务端，可是没有收到任何数据。在java那个客户端正确的数据，在本代码中仍然不正确。
+我尝试将`int`数组改成`char`数组，数据报就正确了，发到服务端，收到回应数据了。
+
+数据报中有负数，这正确吗？
+
+解决这个问题，太偶然了。
+
+如果，我准确理解了fcgi协议，是不是一开始就能够使用`char`数组构造数据报而不是`int`数组？
+
+问题并未完全解决，只是证明，数据发送无问题，还需要检查，我构造的数据报有没有问题。
+
+仍然没能构造出正确的数据报，而且，不知道哪里错了，明天，就要暂时搁置fcgi客户端的开发。已经花费了两天时间。
+
+##### 相关资料
+
+`#define SIGPLPE 13 /* write on a pipe with no one to read it */`。
+
+1. 管道破裂，这个信号通常在进程间通信产生，比如采用 FIFO(管道)通信的两个进程，读管道没打开或者意外终止就往管道写，写进程会收到 SIGPIPE 信号. 此外用 Socket 通信的两个进程，写进程在写 Socket 的时候，读进程已经终止. 另外, 在send/write 时会引起管道破裂，关闭 Socket, 管道时也会出现管道破裂. 使用 Socket 一般都会收到这个SIGPIPE 信号.简单来说就是和socket通信以及数据的读写相关联。这样一来就能大体猜到为什么在切换到前台或者重新解锁手机的时候出现crash现象了。
+2. signal 13 这种错误是系统发出来的, 和内存使用异常和野指针一样，由于是系统级别崩溃，所以不能通过@try,catch捕获异常。
+
+![Terminated due to signal X](note-picture/1-2.png)
+
+
+
+
+
+
 
 ## 疑问
 ### 向静态页面或非处理POST请求的页面发送POST请求
@@ -437,6 +508,13 @@ void test() {
 ```
 
 原因未知，我就不用这种”使用指针来实现动态数组“的写法了。
+
+### cpp使用socket发送与接收vector
+1.我模仿`java`代码，逐个字符发送。
+### cpp/c将字符串和整型数字混合写入文件
+
+### cpp/c将一组数组写入文件
+用`fprintf`。
 
 ## 基础知识
 ### 字符串转为二进制

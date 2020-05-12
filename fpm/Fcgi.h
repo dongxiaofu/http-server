@@ -12,9 +12,9 @@ class Fcgi {
 public:
     const int VERSION = 1;
 
-    void fcgi_param(string name, string value, vector<int> *pairs);
+    void fcgi_param(string name, string value, vector<char> *pairs);
 
-    void get_bytes(int name_length, vector<int> *bytes);
+    void get_bytes(int name_length, vector<char> *bytes);
 
-    void fcgi_packet(int type, int id, vector<int> content, int content_size, vector<int> *packet);
+    void fcgi_packet(int type, int id, vector<char> content, int content_size, vector<char> *packet);
 };

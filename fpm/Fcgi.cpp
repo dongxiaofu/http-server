@@ -1,18 +1,18 @@
 #include "Fcgi.h"
 
-void Fcgi::fcgi_param(string name, string value, vector<int> *pairs) {
+void Fcgi::fcgi_param(string name, string value, vector<char> *pairs) {
     int name_length = name.size();
     int value_length = value.size();
-    vector<int> name_len_bytes;
+    vector<char> name_len_bytes;
     get_bytes(name_length, &name_len_bytes);
-    vector<int> value_len_bytes;
+    vector<char> value_len_bytes;
     get_bytes(value_length, &value_len_bytes);
     const int binary_name_len = name_length * 8;
     const int binary_value_len = value.size() * 8;
 //    int binary_name[binary_name_len];
 //    int binary_value[binary_value_len];
-    vector<int> binary_name;//(binary_name_len);
-    vector<int> binary_value;//(binary_value_len);
+    vector<char> binary_name;//(binary_name_len);
+    vector<char> binary_value;//(binary_value_len);
     to_binary(name, &binary_name);
     to_binary(value, &binary_value);
 
@@ -40,7 +40,7 @@ void Fcgi::fcgi_param(string name, string value, vector<int> *pairs) {
 //    }
 }
 
-void Fcgi::get_bytes(int name_length, vector<int> *bytes) {
+void Fcgi::get_bytes(int name_length, vector<char> *bytes) {
 //    int size;
 //    if (name_length < 128) {
 //        size = 1;
@@ -50,17 +50,17 @@ void Fcgi::get_bytes(int name_length, vector<int> *bytes) {
 //    int name_len[size];
 
     if (name_length < 128) {
-        bytes->push_back(name_length);
+        bytes->push_back((char)name_length);
     } else {
-        bytes->push_back((name_length >> 24) & 0xff);
-        bytes->push_back((name_length >> 16) & 0xff);
-        bytes->push_back((name_length >> 8) & 0xff);
-        bytes->push_back(name_length & 0xff);
+        bytes->push_back((char)((name_length >> 24) & 0xff));
+        bytes->push_back((char)((name_length >> 16) & 0xff));
+        bytes->push_back((char)((name_length >> 8) & 0xff));
+        bytes->push_back((char)(name_length & 0xff));
     }
 }
 
-void Fcgi::fcgi_packet(int type, int id, vector<int> content, int content_size, vector<int> *packet) {
-    int header[8];
+void Fcgi::fcgi_packet(int type, int id, vector<char> content, int content_size, vector<char> *packet) {
+    char header[8];
     header[0] = VERSION;
     header[1] = type;
     header[2] = (id >> 8) & 0xff;
@@ -72,7 +72,7 @@ void Fcgi::fcgi_packet(int type, int id, vector<int> content, int content_size, 
     for (int i = 0; i < 8; i++) {
         packet->push_back(header[i]);
     }
-    for(vector<int>::iterator it = content.begin();it < content.end();it++){
+    for(vector<char>::iterator it = content.begin();it < content.end();it++){
         // 不清楚为何要加*
         packet->push_back(*it);
     }
