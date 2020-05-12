@@ -9,6 +9,7 @@
 #include <sstream>
 #include <sys/stat.h>
 #include "Request.h"
+#include "fpm/Fpm.h"
 
 const string HTDOCS = "/Users/cg/data/code/wheel/cpp/http-server/htdocs";
 
@@ -43,6 +44,18 @@ void sleep_ms(unsigned int secs);
 string read_body(int socket_fd, int content_length);
 
 int main() {
+//    string str = "Abcd";
+//    int size = 32;
+//    int binary[32];
+//    int binary_size = size;
+//    to_binary(str, binary, binary_size);
+//    for(int i = 0; i < size; i++){
+//        std::cout << binary[i];
+//    }
+//    return 0;
+    Fpm fpm;
+    fpm.run();
+    return 0;
     char c = 'A';
     std::cout << &c << std::endl;
     std::cout << "hello,world.I am a web server." << std::endl;
