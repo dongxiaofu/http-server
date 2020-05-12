@@ -115,8 +115,14 @@ void *accept_request(void *client_sock) {
     Request request;
     char str[64];
     int k = 0;
+    /******************************************************************
+     * 存储来自客户端的所有数据：请求行 + 实体主体
+     * 存储为vector，是为了适配fcgi客户端相关函数对参数的要求
+     *****************************************************************/
+    vector<char> data_from_client;
     for (int i = 0; i < size; i++) {
         char c = buf[i];
+        data_from_client.push_back(c);
         /******************************************************************
          * HTTP/1.1 与 200 之间有多个空格，这段代码能正常运行吗？
          * 在头脑中运行，不能很快得出结果。
@@ -161,6 +167,9 @@ void *accept_request(void *client_sock) {
     // 读取剩余的所有的请求行
     while (1) {
         get_line(tmp, buf);
+        for (int i = 0; i < strlen(buf); i++) {
+            data_from_client.push_back(buf[i]);
+        }
         string line = string(buf);
         char tmp[] = "Content-Length";
         if (strncasecmp(line.c_str(), tmp, strlen(tmp)) == 0) {
@@ -206,6 +215,12 @@ void *accept_request(void *client_sock) {
         send(tmp, response_line.c_str(), response_line.size(), 0);
         close(tmp);
         return nullptr;
+    }
+
+    // 读取实体主体
+    string body = read_body(tmp, atoi(request.content_length.c_str()));
+    for (int i = 0; i < body.size(); i++) {
+        data_from_client.push_back(body[i]);
     }
 
     if (request.method == "GET") {
@@ -272,8 +287,6 @@ void *accept_request(void *client_sock) {
             send(tmp, response_line.c_str(), response_line.size(), 0);
         }
     } else if (request.method == "POST") {
-        // 读取实体主体
-        string body = read_body(tmp, atoi(request.content_length.c_str()));
         std::cout << "==============================body start=====================" << std::endl;
         std::cout << body << std::endl;
         std::cout << "==============================body end=====================" << std::endl;
@@ -378,7 +391,7 @@ void sleep_ms(unsigned int secs) {
 string read_body(int socket_fd, int content_length) {
     string body;
     char data[1024];
-    while (recv(socket_fd, data, sizeof(char)*1024, 0) != -1) {
+    while (recv(socket_fd, data, sizeof(char) * 1024, 0) != -1) {
         std::cout << data;
         body += data;
         if (body.size() == content_length) {
