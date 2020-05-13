@@ -230,22 +230,6 @@ void *accept_request(void *client_sock) {
     }
 
     string full_file_path = HTDOCS + request.file_path;
-    /*****************************************************************
-     * 404 也有返回实体主体。有实体主体就必须有响应头Content-Length
-     ****************************************************************/
-    if (!file_exists(full_file_path)) {
-        string content = "404";
-        string response_line = "HTTP/1.1 404 Not Found\r\n";
-        sprintf(buf, "Content-Length: %lu\r\n", content.size());
-        response_line += buf;
-        response_line += "Server: cg-http-server/0.1\r\n";
-        response_line += "\r\n";
-        response_line += content;
-        send(tmp, response_line.c_str(), response_line.size(), 0);
-        close(tmp);
-        return nullptr;
-    }
-
     // 读取实体主体
     int content_length = atoi(request.content_length.c_str());
     if (content_length > 0) {
@@ -300,6 +284,21 @@ void *accept_request(void *client_sock) {
         return nullptr;
     }
     // 静态请求
+    /*****************************************************************
+     * 404 也有返回实体主体。有实体主体就必须有响应头Content-Length
+     ****************************************************************/
+    if (!file_exists(full_file_path)) {
+        string content = "404";
+        string response_line = "HTTP/1.1 404 Not Found\r\n";
+        sprintf(buf, "Content-Length: %lu\r\n", content.size());
+        response_line += buf;
+        response_line += "Server: cg-http-server/0.1\r\n";
+        response_line += "\r\n";
+        response_line += content;
+        send(tmp, response_line.c_str(), response_line.size(), 0);
+        close(tmp);
+        return nullptr;
+    }
     if ("GET" == requet_method) {
         int content_len;
         bool is_picture = file_is_picture(full_file_path);
