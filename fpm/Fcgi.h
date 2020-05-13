@@ -17,4 +17,6 @@ public:
     void get_bytes(int name_length, vector<char> *bytes);
 
     void fcgi_packet(int type, int id, vector<char> content, int content_size, vector<char> *packet);
+
+    void get_chars(string str, vector<char> *str_chars);
 };

@@ -13,13 +13,13 @@ void Fcgi::fcgi_param(string name, string value, vector<char> *pairs) {
 //    int binary_value[binary_value_len];
     vector<char> binary_name;//(binary_name_len);
     vector<char> binary_value;//(binary_value_len);
-    to_binary(name, &binary_name);
-    to_binary(value, &binary_value);
+    get_chars(name, &binary_name);
+    get_chars(value, &binary_value);
 
-    pairs->insert(pairs->end(),name_len_bytes.begin(), name_len_bytes.end());
-    pairs->insert(pairs->end(),value_len_bytes.begin(), value_len_bytes.end());
-    pairs->insert(pairs->end(),binary_name.begin(), binary_name.end());
-    pairs->insert(pairs->end(),binary_value.begin(), binary_value.end());
+    pairs->insert(pairs->end(), name_len_bytes.begin(), name_len_bytes.end());
+    pairs->insert(pairs->end(), value_len_bytes.begin(), value_len_bytes.end());
+    pairs->insert(pairs->end(), binary_name.begin(), binary_name.end());
+    pairs->insert(pairs->end(), binary_value.begin(), binary_value.end());
 
 //    pairs->assign(name_len_bytes.begin(), name_len_bytes.end());
 //    pairs->assign(value_len_bytes.begin(), value_len_bytes.end());
@@ -50,12 +50,12 @@ void Fcgi::get_bytes(int name_length, vector<char> *bytes) {
 //    int name_len[size];
 
     if (name_length < 128) {
-        bytes->push_back((char)name_length);
+        bytes->push_back((char) name_length);
     } else {
-        bytes->push_back((char)((name_length >> 24) & 0xff));
-        bytes->push_back((char)((name_length >> 16) & 0xff));
-        bytes->push_back((char)((name_length >> 8) & 0xff));
-        bytes->push_back((char)(name_length & 0xff));
+        bytes->push_back((char) ((name_length >> 24) & 0xff));
+        bytes->push_back((char) ((name_length >> 16) & 0xff));
+        bytes->push_back((char) ((name_length >> 8) & 0xff));
+        bytes->push_back((char) (name_length & 0xff));
     }
 }
 
@@ -63,7 +63,12 @@ void Fcgi::fcgi_packet(int type, int id, vector<char> content, int content_size,
     char header[8];
     header[0] = VERSION;
     header[1] = type;
-    header[2] = (id >> 8) & 0xff;
+    header[2] = (id >> 8) & 0xff;   // 高八位
+    /*************************************************************************
+     * 为什么不是全部，而是低八位呢？
+     * 因为0xff是255，它是2的7次方，1个1 + 7个0，共八位。
+     * 高于八位的，&运算后，为0。
+     ************************************************************************/
     header[3] = id & 0xff;
     header[4] = (content_size >> 8) & 0xff;
     header[5] = content_size & 0xff;
@@ -72,8 +77,14 @@ void Fcgi::fcgi_packet(int type, int id, vector<char> content, int content_size,
     for (int i = 0; i < 8; i++) {
         packet->push_back(header[i]);
     }
-    for(vector<char>::iterator it = content.begin();it < content.end();it++){
+    for (vector<char>::iterator it = content.begin(); it < content.end(); it++) {
         // 不清楚为何要加*
         packet->push_back(*it);
+    }
+}
+
+void Fcgi::get_chars(string str, vector<char> *str_chars) {
+    for (int i = 0; i < str.size(); i++) {
+        str_chars->push_back(str[i]);
     }
 }

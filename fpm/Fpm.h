@@ -8,5 +8,6 @@
 
 class Fpm {
 public:
+    const int CLIENT_PORT = 9000;
     void run();
 };
