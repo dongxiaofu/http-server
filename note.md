@@ -361,6 +361,10 @@ Content-Disposition: form-data; name="age"
 
 以上是我看半年前的java代码实现后回忆内容。后面，我会根据java代码写出完全符合代码的文档。
 #### 实际实现
+#### 解析FastCGI服务端返回数据
+##### 接收完全部数据停止接收
+1. FastCGI服务端没有发送`type`为`FCGI_END_REQUEST`的数据报。我测试时是这样。在正常数据发送完毕后，不停发送了`FCGI_DATA`和`type=101`的数据报。
+2. 接收为`type`为`FCGI_STDOUT`或`FCGI_STDERR`数据报后，客户端终止接收数据的流程。这两种数据类型不会同时出现。
 ## 实现fcgi客户端难点
 ### 将字符串转为二进制形式
 
@@ -524,6 +528,65 @@ void test() {
 
 ### cpp/c将一组数组写入文件
 用`fprintf`。
+
+## cpp常见错误或警告
+
+1. `warning: control may reach end of non-void function [-Wreturn-type]`该函数返回类型为int，可能出现无返回结果的情况。
+2.  `warning: address of stack memory associated with local variable 'content' returned [-Wreturn-stack-address]`
+
+下面的代码出现这个警告。
+
+```
+char *get_content()
+{
+	char content[200] = "hello,world";
+	return content;
+}
+```
+
+```
+char *ptr;
+void get_content(char *ptr)
+{
+	char content[200] = "hello,world!";
+	ptr = content;
+}
+```
+
+函数内部的`content`是一个字符串数组。在函数return之后这个get_name会释放内存（因为它在栈中，函数执行完会弹栈）。所以main函数中的name变成了一个野指针，这是一个很危险的操作。
+
+*解决办法：返回一个在堆中的地址。*
+
+正确的写法：
+
+```
+char *get_name() {
+    char get_name[30];
+    cout << "Enter your name :";// a word
+    cin >> get_name;
+    char *name = new char[strlen(get_name) + 1];
+    strcpy(name, get_name);// do not use name = get_name
+    //because name will get get_name address it's in the stack
+    //it is stupid idea.
+    return name;
+}
+```
+
+返回数据为`int`类型，这种写法无问题。
+
+```
+int max(int num1, int num2) {
+    // 局部变量声明
+    int result;
+    if (num1 > num2)
+        result = num1;
+    else
+        result = num2;
+    return result;
+}
+```
+
+函数要通过返回值传递数据，该如何写？
 
 ## 基础知识
 ### 字符串转为二进制

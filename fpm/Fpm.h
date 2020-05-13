@@ -9,5 +9,12 @@
 class Fpm {
 public:
     const int CLIENT_PORT = 9000;
+
     void run();
+
+    void create_packet(vector<char> *one_packet);
+
+    void send_packet(int socket_fd, vector<char> packet);
+
+    char *receive_data_from_server(int socket_fd);
 };
