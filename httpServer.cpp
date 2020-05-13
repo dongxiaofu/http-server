@@ -56,7 +56,7 @@ int main() {
     server_sock = startup(80);
     std::cout << "httpd running on port 80" << std::endl;
     while (1) {
-        cout << "start to accept:" << server_sock <<endl;
+        cout << "start to accept:" << server_sock << endl;
         try {
             client_sock = accept(server_sock, (struct sockaddr *) &client_name, (socklen_t *) &client_name_len);
         } catch (exception exception3) {
@@ -97,7 +97,28 @@ int startup(u_short port) {
     name.sin_port = htons(port);
     name.sin_addr.s_addr = htonll(INADDR_ANY);
     try {
-        bind(httpd, (struct sockaddr *) &name, sizeof(name));
+        /******************************************************************
+         * 在c++中，bind被重载。耗时几个小时才偶然找到问题所在。
+         * 偶然点击bind，才发现是一个与socket完全无关的函数。
+         * 之前应该遇到过。又可能是include了其他库导致此函数被重载。
+         * 又耗费时间大概2个小时，很低效。
+         * 找错思路：
+         * 1.断点，发现卡在了accept。
+         * 2.怀疑没有监听指定端口。可我无法确定本进程监听哪个端口。使用lsof -i:80
+         * 并没有完全输出正在使用80端口的进程。那么，不能根据结果列表无本进程判断
+         * 该进程没有监听指定端口。htons(port)后port值发生变化，差点被我当成错误。
+         * 3.折腾了一些"查看进程监听端口"、"根据端口查看对应进程"的命令，无确定收获，
+         * 不是记忆中那些命令。
+         * 4.把其他项目中的正确代码移动到本项目运行，竟然也有同样错误。
+         * 5.偶然点击bind，才发现该函数被重载了!!!!ide功不可没，能找到错误。
+         * 6.这里，绝对应该对bind的结果做个判断。如果有判断，我绝对不会定位为accept
+         * 错误。
+         * 7.解决被重载的方法：使用::bind,  给bind函数赋予全局作用域。
+         ******************************************************************/
+//        bind(httpd, (struct sockaddr *) &name, sizeof(name));
+        if (::bind(httpd, (struct sockaddr *) &name, sizeof(name)) < 0) {
+            perror("bind ");
+        }
     } catch (std::exception exception1) {
         cout << exception1.what();
     }
