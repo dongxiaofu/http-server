@@ -394,6 +394,11 @@ string read_body(int socket_fd, int content_length) {
 2. 以前能运行的处理http请求的代码，不能用了。错误是上面第3点描述的。代码多了，一运行，只知道不正常，不知道错在哪里。断点调试不够细致，几次错过bug出现处，导致多次断点才能定位出错误点。
 3. 断点过程中，出现多个线程，有的线程接收不到数据，导致进程退出。不知道这是常态，还是断点导致的。这是很诡异的容易误导定位错误的问题。
 4. 刷新页面频繁，进程退出，不知道原因，不知道是哪里导致退出。
+5. 频繁刷新页面导致的问题有：
+
+```
+Process finished with exit code 13
+```
 
 ## 实现fcgi客户端难点
 ### 将字符串转为二进制形式
@@ -617,6 +622,28 @@ int max(int num1, int num2) {
 ```
 
 函数要通过返回值传递数据，该如何写？
+
+3. `EXEC_BAD_ACCESS`
+
+向已经释放的对象发送消息时会出现EXC_BAD_ACCESS。当出现错误时，通常会调用堆栈信息，特别是在多线程的情况下，其实就是使用了野指针。
+
+发生错误的代码
+
+```
+bool is_dynamic_request(string filename) {
+    // 不明白为何要加上const，ide提示需要这么做。
+    const char *suffix = strrchr(filename.c_str(), '.');
+    suffix++;
+    if (strcasecmp(suffix, "php") == 0) {
+        return true;
+    }
+    return false;
+}
+```
+
+当`*suffix = ""`时，在`suffix++`出现`EXEC_BAD_ACCESS`。
+
+首先说一下 EXC_BAD_ACCESS 这个错误，可以这么说，90%的错误来源在于对一个已经释放的对象进行release操作。
 
 ## 多线程
 http服务器使用多线程处理客户端连接，出现多线程之间互相干扰的情况。一个线程正在处理一个连接，另外一个线程，没有收到需要的变量，导致整个进程崩溃。另外一个线程，不是因为接收到新请求而打开的吗？为什么变量没有接收到需要的值？

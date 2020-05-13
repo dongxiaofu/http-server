@@ -129,6 +129,7 @@ int startup(u_short port) {
 
 void *accept_request(void *client_sock) {
     std::cout << "client_sock:" << client_sock << std::endl;
+
     char buf[4096];
     memset(buf, 0, 4096);
     // todo 会溢出吗？
@@ -240,6 +241,11 @@ void *accept_request(void *client_sock) {
     }
 
     string requet_method = request.method;
+    // 遇到没有请求头的线程导致进程退出，原因不明，用此方法临时规避
+    if(requet_method.size() == 0){
+        cout<<"没有请求行"<<endl;
+        return nullptr;
+    }
     if (is_dynamic_request(request.file_path)) {
         Fpm fpm;
         ParamsFromWebServer params_from_web_server;
@@ -280,7 +286,7 @@ void *accept_request(void *client_sock) {
             // 不知道php-fpm会返回什么，暂时只输出
             cout << content;
         }
-//        close(tmp);
+        close(tmp);
         return nullptr;
     }
     // 静态请求

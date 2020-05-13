@@ -7,6 +7,7 @@ char * Fpm::run(ParamsFromWebServer params_from_web_server) {
     int socket = network.client_socket("127.0.0.1", CLIENT_PORT);
     send_packet(socket, one_packet);
     char *content = receive_data_from_server(socket);
+    close(socket);
     return content;
 }
 
@@ -105,7 +106,7 @@ char *Fpm::receive_data_from_server(int socket_fd) {
     FD_ZERO(&fdSet);
     while (1) {
         FD_SET(socket_fd, &fdSet);
-        sleep(1);
+//        sleep(1);
         tv.tv_sec = 0;
         tv.tv_usec = 0;
         int h = 0;
