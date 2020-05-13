@@ -12,6 +12,8 @@
 #include "fpm/Fpm.h"
 
 const string HTDOCS = "/Users/cg/data/code/wheel/cpp/http-server/htdocs";
+const int SERVER_PORT = 80;
+
 
 typedef struct {
     int len;
@@ -43,22 +45,9 @@ void sleep_ms(unsigned int secs);
 
 string read_body(int socket_fd, int content_length);
 
+bool is_dynamic_request(string filename);
+
 int main() {
-//    string str = "Abcd";
-//    int size = 32;
-//    int binary[32];
-//    int binary_size = size;
-//    to_binary(str, binary, binary_size);
-//    for(int i = 0; i < size; i++){
-//        std::cout << binary[i];
-//    }
-//    return 0;
-    Fpm fpm;
-    fpm.run();
-    return 0;
-    char c = 'A';
-    std::cout << &c << std::endl;
-    std::cout << "hello,world.I am a web server." << std::endl;
     int server_sock = -1;
     int client_sock;
     pthread_t newthread;
@@ -67,17 +56,30 @@ int main() {
     server_sock = startup(80);
     std::cout << "httpd running on port 80" << std::endl;
     while (1) {
-        client_sock = accept(server_sock, (struct sockaddr *) &client_name, (socklen_t *) &client_name_len);
-        if (client_sock == -1) {
-            perror("accept");
+        cout << "start to accept:" << server_sock <<endl;
+        try {
+            client_sock = accept(server_sock, (struct sockaddr *) &client_name, (socklen_t *) &client_name_len);
+        } catch (exception exception3) {
+            cout << "error";
+            cout << exception3.what();
+        }
+
+        cout << "client_sock:" << client_sock << endl;
+        if (client_sock < 0) {
+            if (errno == EINTR)
+                continue;
+            else {
+                perror("accept error");
+                return 0;
+            }
         }
         void *tmp = (void *) (long) client_sock;
         if (pthread_create(&newthread, NULL, accept_request, tmp) != 0) {
             perror("pthread_create");
         }
     }
-    close(server_sock);
 
+    close(server_sock);
     return 0;
 }
 
@@ -88,7 +90,7 @@ int startup(u_short port) {
     try {
         httpd = socket(PF_INET, SOCK_STREAM, 0);
     } catch (std::exception exception) {
-        exception.what();
+        cout << exception.what();
     }
     memset(&name, 0, sizeof(name));
     name.sin_family = AF_INET;
@@ -97,7 +99,7 @@ int startup(u_short port) {
     try {
         bind(httpd, (struct sockaddr *) &name, sizeof(name));
     } catch (std::exception exception1) {
-        exception1.what();
+        cout << exception1.what();
     }
     listen(httpd, 15);
 
@@ -222,8 +224,52 @@ void *accept_request(void *client_sock) {
     for (int i = 0; i < body.size(); i++) {
         data_from_client.push_back(body[i]);
     }
+    string requet_method = request.method;
+    if (is_dynamic_request(request.file_path)) {
+        Fpm fpm;
+        ParamsFromWebServer params_from_web_server;
+        params_from_web_server.uri = request.file_path;
+        params_from_web_server.query_string = request.file_path;
+        params_from_web_server.http_body = data_from_client;
+        // http 请求中会包含这个请求头吗？
+        params_from_web_server.content_type = "";
+        params_from_web_server.content_length = request.content_length;
+        char *result_from_fastcgi_server = fpm.run(params_from_web_server);
+        char *content = result_from_fastcgi_server;
+        int content_len = strlen(content);
+        /***************************************************************
+         * 出现重复代码，不过我没有想到好的处理方法，不愿花太多时间在组织代码上，我的
+         * 主要目的是学习C++，而不是组织代码。
+         ****************************************************************/
+        if ("GET" == requet_method) {
+            strcpy(buf, "HTTP/1.1 200 OK\r\n");
+            send(tmp, buf, strlen(buf), 0);
+            if (content_len > 0) {
+                string head =
+                        "Server: cg-http-server/0.1\r\n"
+                        "Connection: keep-alive\r\n";
+                head += "Content-Type:text/html\r\n";
+                send(tmp, head.c_str(), head.size(), 0);
+                sprintf(buf, "Content-Length:%d\r\n", content_len);
+                send(tmp, buf, strlen(buf), 0);
 
-    if (request.method == "GET") {
+                strcpy(buf, "\r\n");
+                send(tmp, buf, strlen(buf), 0);
+                send(tmp, content, content_len, 0);
+            } else {
+                string response_line = "HTTP/1.1 204 No Content\r\n";
+                response_line += "\r\n";
+                send(tmp, response_line.c_str(), response_line.size(), 0);
+            }
+        } else if ("POST" == requet_method) {
+            // 不知道php-fpm会返回什么，暂时只输出
+            cout << content;
+        }
+//        close(tmp);
+        return nullptr;
+    }
+    // 静态请求
+    if ("GET" == requet_method) {
         int content_len;
         bool is_picture = file_is_picture(full_file_path);
         const char *content;
@@ -286,7 +332,7 @@ void *accept_request(void *client_sock) {
             response_line += "\r\n";
             send(tmp, response_line.c_str(), response_line.size(), 0);
         }
-    } else if (request.method == "POST") {
+    } else if ("POST" == requet_method) {
         std::cout << "==============================body start=====================" << std::endl;
         std::cout << body << std::endl;
         std::cout << "==============================body end=====================" << std::endl;
@@ -400,6 +446,16 @@ string read_body(int socket_fd, int content_length) {
     }
 
     return body;
+}
+
+bool is_dynamic_request(string filename) {
+    // 不明白为何要加上const，ide提示需要这么做。
+    const char *suffix = strrchr(filename.c_str(), '.');
+    suffix++;
+    if (strcasecmp(suffix, "php") == 0) {
+        return true;
+    }
+    return false;
 }
 
 // error

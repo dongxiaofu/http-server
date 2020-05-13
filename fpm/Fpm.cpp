@@ -1,17 +1,16 @@
 #include "Fpm.h"
 
-void Fpm::run() {
+char * Fpm::run(ParamsFromWebServer params_from_web_server) {
     vector<char> one_packet;
-    create_packet(&one_packet);
+    create_packet(&one_packet, params_from_web_server);
     Network network;
     int socket = network.client_socket("127.0.0.1", CLIENT_PORT);
     send_packet(socket, one_packet);
     char *content = receive_data_from_server(socket);
-    cout << content;
-    delete[]content;
+    return content;
 }
 
-void Fpm::create_packet(vector<char> *one_packet) {
+void Fpm::create_packet(vector<char> *one_packet, ParamsFromWebServer params_from_web_server) {
     FcgiRole fcgiRole;
     Fcgi fcgi;
     FcgiRequestType fcgiRequestType;
@@ -34,13 +33,13 @@ void Fpm::create_packet(vector<char> *one_packet) {
 //    one_packet->assign(begin_request_body_packet.begin(), begin_request_body_packet.end());
     //2.params
     map<string, string> params;
-    string uri = "/test.php";
-    string content_type = "";
+    string uri = params_from_web_server.uri;
+    string content_type = params_from_web_server.content_type;
     params["GATEWAY_INTERFACE"] = "FastCGI/1.0";
     params["REQUEST_METHOD"] = "GET";
-    params["SCRIPT_FILENAME"] = "/Users/cg/data/www/cg/test.php";
+    params["SCRIPT_FILENAME"] = "/Users/cg/data/www/cg" + uri;
     params["SCRIPT_NAME"] = uri;
-    params["QUERY_STRING"] = "";
+    params["QUERY_STRING"] = params_from_web_server.query_string;
     params["REQUEST_URI"] = uri;
     params["DOCUMENT_URI"] = uri;
     params["SERVER_SOFTWARE"] = "php/fcgiclient";
@@ -51,7 +50,7 @@ void Fpm::create_packet(vector<char> *one_packet) {
     params["SERVER_NAME"] = "DESKTOP-NCL22GF";
     params["SERVER_PROTOCOL"] = "HTTP/1.1";
     params["CONTENT_TYPE"] = content_type;
-    params["CONTENT_LENGTH"] = "0";
+    params["CONTENT_LENGTH"] = params_from_web_server.content_length;
     params["AUTHOR"] = "cg";
 
     vector<char> pairs;
