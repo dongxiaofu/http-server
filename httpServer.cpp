@@ -56,7 +56,7 @@ int main() {
     server_sock = startup(80);
     std::cout << "httpd running on port 80" << std::endl;
     while (1) {
-        cout << "start to accept:" << server_sock << endl;
+//        cout << "start to accept:" << server_sock << endl;
         try {
             client_sock = accept(server_sock, (struct sockaddr *) &client_name, (socklen_t *) &client_name_len);
         } catch (exception exception3) {
@@ -64,7 +64,7 @@ int main() {
             cout << exception3.what();
         }
 
-        cout << "client_sock:" << client_sock << endl;
+//        cout << "client_sock:" << client_sock << endl;
         if (client_sock < 0) {
             if (errno == EINTR)
                 continue;
@@ -122,15 +122,15 @@ int startup(u_short port) {
     } catch (std::exception exception1) {
         cout << exception1.what();
     }
-    listen(httpd, 15);
+    listen(httpd, 5);
 
     return httpd;
 }
 
 void *accept_request(void *client_sock) {
     std::cout << "client_sock:" << client_sock << std::endl;
-    char buf[512];
-    memset(buf, 0, 512);
+    char buf[4096];
+    memset(buf, 0, 4096);
     // todo 会溢出吗？
     int tmp = (long) client_sock;
     get_line(tmp, buf);
@@ -217,8 +217,14 @@ void *accept_request(void *client_sock) {
 //                str[k++] = line[i];
 //            }
         }
+
+        // 有问题，那么，如何比较buf呢？之前为什么没有问题？
         std::cout << line;
-        if (line == "\r\n") {
+//        if (line == "\r\n") {
+//            break;
+//        }
+        char end_flag[] = "\r\n";
+        if (strncasecmp(line.c_str(), end_flag, strlen(end_flag) - 1) == 0) {
             break;
         }
     }
@@ -241,10 +247,14 @@ void *accept_request(void *client_sock) {
     }
 
     // 读取实体主体
-    string body = read_body(tmp, atoi(request.content_length.c_str()));
-    for (int i = 0; i < body.size(); i++) {
-        data_from_client.push_back(body[i]);
+    int content_length = atoi(request.content_length.c_str());
+    if (content_length > 0) {
+        string body = read_body(tmp, content_length);
+        for (int i = 0; i < body.size(); i++) {
+            data_from_client.push_back(body[i]);
+        }
     }
+
     string requet_method = request.method;
     if (is_dynamic_request(request.file_path)) {
         Fpm fpm;
@@ -354,12 +364,12 @@ void *accept_request(void *client_sock) {
             send(tmp, response_line.c_str(), response_line.size(), 0);
         }
     } else if ("POST" == requet_method) {
-        std::cout << "==============================body start=====================" << std::endl;
-        std::cout << body << std::endl;
-        std::cout << "==============================body end=====================" << std::endl;
+//        std::cout << "==============================body start=====================" << std::endl;
+//        std::cout << body << std::endl;
+//        std::cout << "==============================body end=====================" << std::endl;
     }
 
-    sleep_ms(1);
+    sleep_ms(2);
     close(tmp);
 
     return nullptr;
@@ -375,8 +385,17 @@ void *accept_request(void *client_sock) {
  **********************************************************************/
 void get_line(int sockfd, char *buf) {
     char c;
+    // i怎么可能达到8801呢？
     int i = 0;
-    while ((recv(sockfd, &c, 1, 0) != -1) && c != '\n') {
+//    cout << "i init:" << i << "\t" << "pid:" << getpid() << endl;
+    /***********************************************************************
+     * 这个终止条件竟然不能总是起作用。
+     * 加入FastCGI代码后，在请求行接收完毕后，还接收到大量空白字符。
+     * 为什么会这样？
+     * 补充条件：c != 0。0是空字符。
+     **********************************************************************/
+    while ((recv(sockfd, &c, 1, 0) != -1) && c != '\n' && c != 0) {
+//        cout << "c:" << int(c) << endl;
         if (c == '\r') {
             recv(sockfd, &c, 1, 1);
             if (c == '\n') {
@@ -385,6 +404,7 @@ void get_line(int sockfd, char *buf) {
             continue;
         }
         buf[i++] = c;
+//        cout << "i:" << i << "\t" << "pid:" << getpid() << endl;
     }
     buf[i++] = '\r';
     buf[i++] = '\n';
@@ -459,7 +479,6 @@ string read_body(int socket_fd, int content_length) {
     string body;
     char data[1024];
     while (recv(socket_fd, data, sizeof(char) * 1024, 0) != -1) {
-        std::cout << data;
         body += data;
         if (body.size() == content_length) {
             break;
