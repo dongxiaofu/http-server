@@ -150,6 +150,7 @@ void *accept_request(void *client_sock) {
         /******************************************************************
          * HTTP/1.1 与 200 之间有多个空格，这段代码能正常运行吗？
          * 在头脑中运行，不能很快得出结果。
+         * 从HTTP请求行（专业术语？）第一行（即请求行）解析出请求方式、URI等。
          *****************************************************************/
         if (isspace(c)) {
             str[k] = '\0';
@@ -163,12 +164,20 @@ void *accept_request(void *client_sock) {
                 break;
             }
             if (strncasecmp(str, "/", 1) == 0) {
+                /****************************************************
+                 * 从RUI中分离出查询字符串，即?t=2这类字符串。
+                 * todo 有些URL并不用?t=2这类字符串传递查询字符串，而是用/t/2
+                 * 这种形式的字符串传递查询参数，该如何处理？
+                 ****************************************************/
                 char *query_str = strrchr(str, '?');
+                // 这个判断很必要，否则query_str++会越界
                 if (query_str != NULL && strlen(query_str) > 1) {
+                    // 过滤?，这种获取字符串的方法在本项目多次出现，可以封装了
                     query_str++;
                     request.query_string = query_str;
                 }
-
+                // 截取uri中?前面的部分当作file_path
+                // 以后自己写代码，写详细注释，可在另外分支去掉详细注释
                 for (int i = 0; i < strlen(str); i++) {
                     if (str[i] == '?') {
                         str[i] = '\0';
@@ -188,17 +197,28 @@ void *accept_request(void *client_sock) {
 
     std::cout << buf;
 
-    // 读取剩余的所有的请求行
+    /*****************************************************
+     * 读取剩余的所有的请求行。
+     * 用不同方法读取请求行与实体主体，有两点原因：
+     * 1. 请求行，我过滤掉了原始字符串中的\r和\n，进行了格式化。
+     * 2. 实体主体中可能包含\r和\n，get_line不能完整读取实体主体。
+     *****************************************************/
     while (1) {
         get_line(tmp, buf);
+        // 收集FastCGI服务器需要的数据
         for (int i = 0; i < strlen(buf); i++) {
             data_from_client.push_back(buf[i]);
         }
         string line = string(buf);
+        // todo 可以这样初始化数组吗？
+        // 反正这里可以执行，无警告
         char tmp[] = "Content-Length";
         if (strncasecmp(line.c_str(), tmp, strlen(tmp)) == 0) {
             const char *content_length = strrchr(line.c_str(), ':');
+            // 这里其实应该判断content_length是否为NULL，先算了
+            // 忽略冒号:
             content_length++;
+            // content_length是字符串形式的数字，过滤Content-Length: 789中可能存在的空字符串
             for (int i = 0; i < strlen(content_length); i++) {
                 if (strcasecmp(&content_length[i], "") == 0) {
                     content_length++;
@@ -207,25 +227,31 @@ void *accept_request(void *client_sock) {
                 }
             }
             request.content_length = content_length;
-//            char str[64];
-//            int k = 0;
-//            for(int i = 0; i < line.size(); i++){
-//                if(isspace(line[i])){
-//                    str[k] = '\0';
-//                    k = 0;
-//                    continue;
-//                }
-//                str[k++] = line[i];
-//            }
         }
 
-        // 有问题，那么，如何比较buf呢？之前为什么没有问题？
+        //
+        /******************************************************
+         * todo 有问题，那么，如何比较buf呢？之前为什么没有问题？
+         * 没有加入FastCGI客户端代码前，没有问题。也许是运行次数不够多，
+         * 没有暴露出来。
+         * char line[3];
+         * line[0] = '\r';
+         * line[1] = '\n';
+         * line[2] = '\0';
+         * todo 运行证明，line 不等于 "\r\n"字符串。原因，未知。
+         *
+         ******************************************************/
         std::cout << line;
 //        if (line == "\r\n") {
 //            break;
 //        }
         char end_flag[] = "\r\n";
-        if (strncasecmp(line.c_str(), end_flag, strlen(end_flag) - 1) == 0) {
+        /*************************************************************************
+         * strlen(end_flag) 的执行结果是2，这个判断，strlen(end_flag) - 1 ，我期望它
+         * 的结果是2，刚好和line的前两个字符比较。实际上，只比较了line的前一个字符。
+         * todo 我记得，好像说是字符串会自动给末尾加上'\0'。有时间弄明白这点。
+         *************************************************************************/
+        if (strncasecmp(line.c_str(), end_flag, strlen(end_flag)) == 0) {
             break;
         }
     }
@@ -234,6 +260,8 @@ void *accept_request(void *client_sock) {
     // 读取实体主体
     int content_length = atoi(request.content_length.c_str());
     if (content_length > 0) {
+        // content_length == 0时，recv会不停地接收空字符串。原因不明。
+        // 如果没有上文的的if，进程会在这里陷入死循环。
         string body = read_body(tmp, content_length);
         for (int i = 0; i < body.size(); i++) {
             data_from_client.push_back(body[i]);
@@ -241,7 +269,7 @@ void *accept_request(void *client_sock) {
     }
 
     string requet_method = request.method;
-    // 遇到没有请求头的线程导致进程退出，原因不明，用此方法临时规避
+    // 频繁刷新页面，遇到没有请求头的线程导致进程退出，原因不明，用此方法临时规避
     if(requet_method.size() == 0){
         cout<<"没有请求行"<<endl;
         return nullptr;
@@ -257,6 +285,7 @@ void *accept_request(void *client_sock) {
         params_from_web_server.content_length = request.content_length;
         char *result_from_fastcgi_server = fpm.run(params_from_web_server);
         char *content = result_from_fastcgi_server;
+        // todo 用sizeof，行不行？
         int content_len = strlen(content);
         /***************************************************************
          * 出现重复代码，不过我没有想到好的处理方法，不愿花太多时间在组织代码上，我的
@@ -309,6 +338,9 @@ void *accept_request(void *client_sock) {
         int content_len;
         bool is_picture = file_is_picture(full_file_path);
         const char *content;
+        /********************************************************************
+         * 文本文件可以逐行读取，图片却不行。与处理HTTP请求行与实体主体一样，用不同方式读取。
+         ********************************************************************/
         if (is_picture) {
             std::cout << "picture:" << client_sock << full_file_path << std::endl;
             PICTURE picture = read_picture(full_file_path);
@@ -316,10 +348,9 @@ void *accept_request(void *client_sock) {
             content_len = picture.len;
         } else {
             std::cout << "file:" << client_sock << full_file_path << std::endl;
-
             string file_content = read_file(full_file_path);
             content = file_content.c_str();
-//            content_len = sizeof(content);
+//            content_len = sizeof(content);    // todo 这个方式，行不行？strlen呢？
             content_len = file_content.size();
         }
 
@@ -333,6 +364,7 @@ void *accept_request(void *client_sock) {
             file_meta.size = buf2.st_size;
             file_meta.name = request.file_path;
             const char *suffix = strrchr(request.file_path.c_str(), '.');
+            // todo 也应该需要加判断的，防止指针越界。
             suffix++;
             file_meta.suffix = suffix;
 
@@ -430,7 +462,6 @@ string read_file(string file_path) {
     }
 
     infile.close();
-
     return data;
 }
 
@@ -460,13 +491,17 @@ PICTURE read_picture(string file_path) {
     string data;
     using namespace std;
     ifstream is(file_path, ios::in);
+    // todo 不使用二进制读取也可以，为何要使用二进制读取呢？
 //    ifstream is(file_path, ios::in | ios::binary);  // ok
     // 2. 计算图片长度
     is.seekg(0, is.end);
     int len = is.tellg();
+    // 将读取指针重置到开头
     is.seekg(0, ios::beg);
     stringstream buffer;
+    // todo 这里，究竟是否需要循环读取？最开始，我记得好像需要循环才能读取到全部图片数据。
     buffer << is.rdbuf();
+    // todo 这里不是把局部变量当作函数返回值了吗？为何无警告？
     PICTURE picture = {len, len, buffer.str()};
     is.close();
     // 到此，图片已经成功的被读取到内存（buffer）中

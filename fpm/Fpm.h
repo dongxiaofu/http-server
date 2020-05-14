@@ -14,6 +14,11 @@ typedef struct {
     string query_string;
 } ParamsFromWebServer;
 
+/**
+ * 参考资料
+ * 1.FastCGI官方文档：https://fastcgi-archives.github.io/FastCGI_Specification.html#S5.3
+ * 2.别人的博客：https://blog.csdn.net/zhang197093/article/details/78914509
+ */
 class Fpm {
 public:
     const int CLIENT_PORT = 9000;

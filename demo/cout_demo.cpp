@@ -18,6 +18,12 @@ void get_content_by_ptr(char *ptr);
 char *get_name();
 
 int main() {
+    char end_flag[] = "\r\n";
+    cout << "end_flag_size:" << strlen(end_flag) << endl;
+    char *end_flag2 = "\r\n";
+    cout << "end_flag2_size:" << strlen(end_flag2) << endl;
+    string end_flag3= "\r\n";
+    cout << "end_flag3_size:" << end_flag3.size() << endl;
     int size = 3;
     int arr[size];
     test(arr, 3);
@@ -30,7 +36,7 @@ int main() {
     cout << "==========================" << endl;
     char *name = get_name();
     cout << "name:" << name << endl;
-    delete [] name;
+    delete[] name;
     return 0;
 }
 

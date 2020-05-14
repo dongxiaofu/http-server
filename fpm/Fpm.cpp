@@ -22,9 +22,11 @@ void Fpm::create_packet(vector<char> *one_packet, ParamsFromWebServer params_fro
     FcgiRole fcgiRole;
     Fcgi fcgi;
     FcgiRequestType fcgiRequestType;
+    // todo 有空，再弄成由web服务器产生
     int request_id = 5679;
+    // 1.FCGI_BEGIN_REQUEST，请求开始
     vector<char> begin_request_body;
-    // 对vector能这样赋值吗？
+    // todo 对vector能这样赋值吗？对空的，似乎不能吧？有空再验证。
 //    begin_request_body[0] = 0; // roleB1
 //    begin_request_body[1] = fcgiRole.FCGI_RESPONDER; //roleB0
 //    begin_request_body[2] = 0; // flags
@@ -34,11 +36,15 @@ void Fpm::create_packet(vector<char> *one_packet, ParamsFromWebServer params_fro
     for (int i = 0; i < 5; i++) {
         begin_request_body.push_back(0);
     }
+    // todo 当时没找到使用函数返回局部变量的方法，估使用引用传值获取函数处理结果
+    // &begin_request_body_packet
     vector<char> begin_request_body_packet;
     fcgi.fcgi_packet(fcgiRequestType.FCGI_BEGIN_REQUEST, request_id, begin_request_body, begin_request_body.size(),
                      &begin_request_body_packet);
+    // todo 拼接多个vector的方法
     one_packet->insert(one_packet->end(), begin_request_body_packet.begin(), begin_request_body_packet.end());
-//    one_packet->assign(begin_request_body_packet.begin(), begin_request_body_packet.end());
+    // 下面写法是用begin_request_body_packet覆盖one_packet，与意图符合
+    //    one_packet->assign(begin_request_body_packet.begin(), begin_request_body_packet.end());
     //2.params
     map<string, string> params;
     string uri = params_from_web_server.uri;
@@ -62,6 +68,7 @@ void Fpm::create_packet(vector<char> *one_packet, ParamsFromWebServer params_fro
     params["AUTHOR"] = "cg";
 
     vector<char> pairs;
+    // todo 遍历map的方法，与遍历vector相似，差异在获取单元值
     for (map<string, string>::iterator it = params.begin(); it != params.end(); it++) {
         fcgi.fcgi_param(it->first, it->second, &pairs);
     }
@@ -69,22 +76,22 @@ void Fpm::create_packet(vector<char> *one_packet, ParamsFromWebServer params_fro
     vector<char> fcgi_params;
     fcgi.fcgi_packet(fcgiRequestType.FCGI_PARAMS, request_id, pairs, pairs.size(), &fcgi_params);
     one_packet->insert(one_packet->end(), fcgi_params.begin(), fcgi_params.end());
-//    one_packet->assign(fcgi_params.begin(), fcgi_params.end());
-
+    //    3. 发送参数结束
+    // todo 构造数据报时，在这里犯了错误，耗时十几个小时，才低效地发现错误。
+    // todo 原因是对FastCGI协议不熟悉，看Java代码又不仔细，FastCGI服务器又是个黑盒，面对错误数据报，什么也不输出。
     vector<char> fcgi_params_end;
     vector<char> zero;
-//    zero.push_back(0);
+//    zero.push_back(0);    // todo 致命耗时错误
     fcgi.fcgi_packet(fcgiRequestType.FCGI_PARAMS, request_id, zero, zero.size(), &fcgi_params_end);
     one_packet->insert(one_packet->end(), fcgi_params_end.begin(), fcgi_params_end.end());
-//    one_packet->assign(fcgi_params_end.begin(), fcgi_params_end.end());
 
+    // 4. 实体主体，在这里传递
     vector<char> fcgi_stdin;
-    // test
     fcgi.fcgi_packet(fcgiRequestType.FCGI_STDIN, request_id, zero, zero.size(), &fcgi_stdin);
     one_packet->insert(one_packet->end(), fcgi_stdin.begin(), fcgi_stdin.end());
-//    one_packet->assign(fcgi_stdin.begin(), fcgi_stdin.end());
-
+    // 5.发送实体主体结束标志数据报
     vector<char> end_request_body;
+    // todo 作用是什么？不都是存储0吗？为何要做移位运算？
     end_request_body.push_back((int) ((0 >> 24) & 0xff));
     end_request_body.push_back((int) ((0 >> 16) & 0xff));
     end_request_body.push_back((int) ((0 >> 8) & 0xff));
@@ -96,8 +103,8 @@ void Fpm::create_packet(vector<char> *one_packet, ParamsFromWebServer params_fro
     vector<char> end_request;
     fcgi.fcgi_packet(fcgiRequestType.FCGI_END_REQUEST, request_id, end_request_body, end_request_body.size(),
                      &end_request);
+    // 一个完整数据报
     one_packet->insert(one_packet->end(), end_request.begin(), end_request.end());
-//    one_packet->assign(end_request.begin(), end_request.end());
 }
 
 void Fpm::send_packet(int socket_fd, vector<char> packet) {
@@ -113,7 +120,6 @@ char *Fpm::receive_data_from_server(int socket_fd) {
     FD_ZERO(&fdSet);
     while (1) {
         FD_SET(socket_fd, &fdSet);
-//        sleep(1);
         tv.tv_sec = 0;
         tv.tv_usec = 0;
         int h = 0;
@@ -126,8 +132,9 @@ char *Fpm::receive_data_from_server(int socket_fd) {
             return nullptr;
         }
         char buf[8];
-//        memset(buf, 0, 8 * sizeof(char));
+//        memset(buf, 0, 8 * sizeof(char));     // todo 似乎可有可无？我执行代码，发现好像是这样。
         int n;
+        // todo recv接收完合法数据后，竟然还会不停接收空白字符串。神奇，若不主动断开，陷入死循环。
         n = recv(socket_fd, buf, 8 * sizeof(char), 0);
         if (n == -1) {
             return nullptr;
@@ -138,6 +145,7 @@ char *Fpm::receive_data_from_server(int socket_fd) {
         cout << "id:" << (int) ((buf[2] & 0xff) << 8) + (int) ((buf[3] & 0xff)) << endl;
         cout << "content_length:" << (int) ((buf[4] & 0xff) << 8) + (int) ((buf[5] & 0xff)) << endl;
         int type = (int) buf[1];
+        // 数据报不上标准输出和标准错误输出，停止接收数据
         if (type != FcgiRequestType::FCGI_STDOUT && type != FcgiRequestType::FCGI_STDERR) {
             return nullptr;
         }
@@ -150,6 +158,12 @@ char *Fpm::receive_data_from_server(int socket_fd) {
 //        cout << "content:" << content << endl;
         char *ptr_content = new char[strlen(content)];
         strcpy(ptr_content, content);
+        /******************************************************
+         * todo 这里停止接收数据是否正确？有没有遗漏这种情况：
+         * 在一个页面，同时出现错误信息和正常输出结果。这种情况，FastCGI
+         * 会先后返回FCGI_STDOUT和FCGI_STDERR数据报吗？
+         * 有空再验证并完善。
+         ******************************************************/
         return ptr_content;
     }
     return nullptr;
