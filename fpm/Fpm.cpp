@@ -7,6 +7,13 @@ char * Fpm::run(ParamsFromWebServer params_from_web_server) {
     int socket = network.client_socket("127.0.0.1", CLIENT_PORT);
     send_packet(socket, one_packet);
     char *content = receive_data_from_server(socket);
+    /******************************************************************
+     * todo
+     * 不理解。
+     * 没有close(socket)，就会出现：在第二次请求PHP文件时，被卡住。
+     * 原因是什么？
+     * 喜欢这种注释方式，开始不喜欢//这种风格的注释方式了。
+     ******************************************************************/
     close(socket);
     return content;
 }

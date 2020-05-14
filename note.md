@@ -400,6 +400,8 @@ string read_body(int socket_fd, int content_length) {
 Process finished with exit code 13
 ```
 
+1. 在`FastCGI`客户端中，若没有close(socket)，就会出现：在第二次请求PHP文件时，被卡住。这是为什么？
+
 ## 实现fcgi客户端难点
 ### 将字符串转为二进制形式
 
