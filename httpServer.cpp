@@ -47,6 +47,9 @@ string read_body(int socket_fd, int content_length);
 
 bool is_dynamic_request(string filename);
 
+// 检查是不是\r\n
+bool is_lf_cr(string line);
+
 int main() {
     int server_sock = -1;
     int client_sock;
@@ -56,7 +59,6 @@ int main() {
     server_sock = startup(80);
     std::cout << "httpd running on port 80" << std::endl;
     while (1) {
-//        cout << "start to accept:" << server_sock << endl;
         try {
             client_sock = accept(server_sock, (struct sockaddr *) &client_name, (socklen_t *) &client_name_len);
         } catch (exception exception3) {
@@ -64,7 +66,6 @@ int main() {
             cout << exception3.what();
         }
 
-//        cout << "client_sock:" << client_sock << endl;
         if (client_sock < 0) {
             if (errno == EINTR)
                 continue;
@@ -135,6 +136,17 @@ void *accept_request(void *client_sock) {
     // todo 会溢出吗？
     int tmp = (long) client_sock;
     get_line(tmp, buf);
+    /***************************************
+     * 尝试解决没有接收到数据的线程导致进程崩溃问题
+     * 仍然无效。手动频繁刷新页面，都导致进程退出。
+     * Process finished with exit code 13
+     * todo 究竟是在哪里导致退出的？
+     * 先写其他业务逻辑，有时间再优化。
+     ***************************************/
+    if (is_lf_cr(buf)) {
+        close(tmp);
+        return nullptr;
+    }
     int size = strlen(buf);
     Request request;
     char str[64];
@@ -228,30 +240,9 @@ void *accept_request(void *client_sock) {
             }
             request.content_length = content_length;
         }
-
-        //
-        /******************************************************
-         * todo 有问题，那么，如何比较buf呢？之前为什么没有问题？
-         * 没有加入FastCGI客户端代码前，没有问题。也许是运行次数不够多，
-         * 没有暴露出来。
-         * char line[3];
-         * line[0] = '\r';
-         * line[1] = '\n';
-         * line[2] = '\0';
-         * todo 运行证明，line 不等于 "\r\n"字符串。原因，未知。
-         *
-         ******************************************************/
-        std::cout << line;
-//        if (line == "\r\n") {
-//            break;
-//        }
-        char end_flag[] = "\r\n";
-        /*************************************************************************
-         * strlen(end_flag) 的执行结果是2，这个判断，strlen(end_flag) - 1 ，我期望它
-         * 的结果是2，刚好和line的前两个字符比较。实际上，只比较了line的前一个字符。
-         * todo 我记得，好像说是字符串会自动给末尾加上'\0'。有时间弄明白这点。
-         *************************************************************************/
-        if (strncasecmp(line.c_str(), end_flag, strlen(end_flag)) == 0) {
+        // 打印请求行
+//        std::cout << line;
+        if (is_lf_cr(line)) {
             break;
         }
     }
@@ -270,8 +261,8 @@ void *accept_request(void *client_sock) {
 
     string requet_method = request.method;
     // 频繁刷新页面，遇到没有请求头的线程导致进程退出，原因不明，用此方法临时规避
-    if(requet_method.size() == 0){
-        cout<<"没有请求行"<<endl;
+    if (requet_method.size() == 0) {
+        cout << "没有请求行" << endl;
         return nullptr;
     }
     if (is_dynamic_request(request.file_path)) {
@@ -283,10 +274,14 @@ void *accept_request(void *client_sock) {
         // http 请求中会包含这个请求头吗？
         params_from_web_server.content_type = "";
         params_from_web_server.content_length = request.content_length;
-        char *result_from_fastcgi_server = fpm.run(params_from_web_server);
-        char *content = result_from_fastcgi_server;
+        DataFromFastCGIServer data_from_fast_cgi_server = fpm.run(params_from_web_server);
+        string content = data_from_fast_cgi_server.body;
+        string head_line = data_from_fast_cgi_server.head_line;
+        cout << head_line;
+        cout << "=============================" << endl;
+        cout << content;    // 打印来自FastCGI server的数据
         // todo 用sizeof，行不行？
-        int content_len = strlen(content);
+        int content_len = content.size();
         /***************************************************************
          * 出现重复代码，不过我没有想到好的处理方法，不愿花太多时间在组织代码上，我的
          * 主要目的是学习C++，而不是组织代码。
@@ -298,14 +293,19 @@ void *accept_request(void *client_sock) {
                 string head =
                         "Server: cg-http-server/0.1\r\n"
                         "Connection: keep-alive\r\n";
-                head += "Content-Type:text/html\r\n";
+                // FastCGI服务器返回数据若有响应行，会返回content-type
+                if (head_line.size()) {
+                    head += head_line;
+                } else {
+                    head += "Content-Type:text/html\r\n";
+                }
                 send(tmp, head.c_str(), head.size(), 0);
                 sprintf(buf, "Content-Length:%d\r\n", content_len);
                 send(tmp, buf, strlen(buf), 0);
 
                 strcpy(buf, "\r\n");
                 send(tmp, buf, strlen(buf), 0);
-                send(tmp, content, content_len, 0);
+                send(tmp, content.c_str(), content_len, 0);
             } else {
                 string response_line = "HTTP/1.1 204 No Content\r\n";
                 response_line += "\r\n";
@@ -533,6 +533,32 @@ bool is_dynamic_request(string filename) {
     const char *suffix = strrchr(filename.c_str(), '.');
     suffix++;
     if (strcasecmp(suffix, "php") == 0) {
+        return true;
+    }
+    return false;
+}
+
+bool is_lf_cr(string line) {
+    /******************************************************
+     * todo 有问题，那么，如何比较buf呢？之前为什么没有问题？
+     * 没有加入FastCGI客户端代码前，没有问题。也许是运行次数不够多，
+     * 没有暴露出来。
+     * char line[3];
+     * line[0] = '\r';
+     * line[1] = '\n';
+     * line[2] = '\0';
+     * todo 运行证明，line 不等于 "\r\n"字符串。原因，未知。
+     ******************************************************/
+//    if (line == "\r\n") {
+//         break;
+//    }
+    char end_flag[] = "\r\n";
+    /*************************************************************************
+     * strlen(end_flag) 的执行结果是2，这个判断，strlen(end_flag) - 1 ，我期望它
+     * 的结果是2，刚好和line的前两个字符比较。实际上，只比较了line的前一个字符。
+     * todo 我记得，好像说是字符串会自动给末尾加上'\0'。有时间弄明白这点。
+     *************************************************************************/
+    if (strncasecmp(line.c_str(), end_flag, strlen(end_flag)) == 0) {
         return true;
     }
     return false;
