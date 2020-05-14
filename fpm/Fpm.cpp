@@ -1,12 +1,12 @@
 #include "Fpm.h"
 
-DataFromFastCGIServer Fpm::run(ParamsFromWebServer params_from_web_server) {
+DataFromFastCGIServer * Fpm::run(ParamsFromWebServer params_from_web_server) {
     vector<char> one_packet;
     create_packet(&one_packet, params_from_web_server);
     Network network;
     int socket = network.client_socket("127.0.0.1", CLIENT_PORT);
     send_packet(socket, one_packet);
-    DataFromFastCGIServer data_from_fast_cgi_server = receive_data_from_server(socket);
+    DataFromFastCGIServer *data_from_fast_cgi_server = receive_data_from_server(socket);
     /******************************************************************
      * todo
      * 不理解。
@@ -114,8 +114,8 @@ void Fpm::send_packet(int socket_fd, vector<char> packet) {
     }
 }
 
-DataFromFastCGIServer Fpm::receive_data_from_server(int socket_fd) {
-    DataFromFastCGIServer data_from_fast_cgi_server;
+DataFromFastCGIServer * Fpm::receive_data_from_server(int socket_fd) {
+    DataFromFastCGIServer *data_from_fast_cgi_server = new DataFromFastCGIServer;
     fd_set fdSet;
     struct timeval tv;
     FD_ZERO(&fdSet);
@@ -132,95 +132,304 @@ DataFromFastCGIServer Fpm::receive_data_from_server(int socket_fd) {
             perror("select");
             return data_from_fast_cgi_server;
         }
-        char buf[8];
-//        memset(buf, 0, 8 * sizeof(char));     // todo 似乎可有可无？我执行代码，发现好像是这样。
-        int n;
-        // todo recv接收完合法数据后，竟然还会不停接收空白字符串。神奇，若不主动断开，陷入死循环。
-        n = recv(socket_fd, buf, 8 * sizeof(char), 0);
-        if (n == -1) {
-            return data_from_fast_cgi_server;
-        }
-        cout << "n:" << n << endl;
-        cout << "version:" << (int) buf[0] << endl;
-        cout << "type:" << (int) buf[1] << endl;
-        cout << "id:" << (int) ((buf[2] & 0xff) << 8) + (int) ((buf[3] & 0xff)) << endl;
-        cout << "content_length:" << (int) ((buf[4] & 0xff) << 8) + (int) ((buf[5] & 0xff)) << endl;
-        int type = (int) buf[1];
-        // 数据报不上标准输出和标准错误输出，停止接收数据
-        if (type != FcgiRequestType::FCGI_STDOUT && type != FcgiRequestType::FCGI_STDERR) {
-            return data_from_fast_cgi_server;
-        }
-        int content_length = (int) ((buf[4] & 0xff) << 8) + (int) ((buf[5] & 0xff));
-        char content[content_length];
-        n = read(socket_fd, content, content_length);
-        if (n == -1) {
-            return data_from_fast_cgi_server;
-        }
-        char *ptr_content = new char[strlen(content)];
-        strcpy(ptr_content, content);
-        if (FcgiRequestType::FCGI_STDERR == type) {
-            // 没有响应头
-            data_from_fast_cgi_server.body = content;
-        } else if (FcgiRequestType::FCGI_STDOUT == type) {
-            string head = "";
-            int i = 0;
-            for (i = 0; i < content_length; i++) {
-                char c = content[i];
-                head += c;
-                // 分离FastCIG服务器返回数据中的响应行与实体主体，耗费了非常多时间。
-                // 细小问题，边断点边调试，解决速度更快。我不应该心算。
-                // 若满足这串if条件，\r\n\r\n没有写进head
-                // 这个分割响应头与实体主体的操作，我想了大概十多分钟，才认为下面的代码是正确的。
-                // 没有运行，心算的。
-                // 可以用 strtok 实现需求，不必像我这样写这样麻烦
-                // strtok https://www.runoob.com/cprogramming/c-function-strtok.html
-                if ('\r' == c) {
-                    i++;
-                    c = content[i];
-                    // 不能漏掉非最后一行响应行的\r\n
-//                    head += c;
-                    if ('\n' == c) {
-                        head += c;
-                        i++;
-                        c = content[i];
-                        if ('\r' == c) {
-                            i++;
-                            c = content[i];
-                            if ('\n' == c) {
-                                break;
+        char c;
+        string content;
+//        string head;
+//        string body;
+        int counter = 0;
+        while ((recv(socket_fd, &c, sizeof(char), 0)) != -1) {
+            if (counter++ < 8) {
+                continue;
+            }
+            cout << "c:" << char(c) << "\t" << (int) c << endl;
+            if (c == '\0') {
+//                recv(socket_fd, &c, 1, MSG_PEEK);
+                recv(socket_fd, &c, 1, MSG_PEEK);
+                if (c == '\0') {
+                    recv(socket_fd, &c, 1, 0);
+                    recv(socket_fd, &c, 1, MSG_PEEK);
+                    if (c == '\0') {
+                        recv(socket_fd, &c, 1, 0);
+                        recv(socket_fd, &c, 1, MSG_PEEK);
+                        if (c == '\0') {
+                            recv(socket_fd, &c, 1, 0);
+                            recv(socket_fd, &c, 1, MSG_PEEK);
+                            if (c == '\0') {
+                                recv(socket_fd, &c, 1, 0);
+                                recv(socket_fd, &c, 1, MSG_PEEK);
+                                if (c == '\0') {
+                                    cout << "last" << endl;
+                                    break;
+                                }
                             }
-                        } else {
-                            // 防止中间行的非\r\n遗漏
-                            head += c;
                         }
                     }
                 }
+            }
+            if (c == '\0') {
+                continue;
+            }
+            content += c;
+
+//            continue;
+//            // 忽略数据报头部
+//            if (couter++ < 8) {
+//                continue;
+//            }
+//            // 如果连续多个字符都是空字符，我认为数据已经全部接收完毕
+//            char c1, c2, c3, c4;
+//            recv(socket_fd, &c1, sizeof(char), 1);
+//            recv(socket_fd, &c2, sizeof(char), 1);
+//            recv(socket_fd, &c3, sizeof(char), 1);
+//            recv(socket_fd, &c4, sizeof(char), 1);
+//            if ('\0' == c1 && '\0' == c2 && '\0' == c3 && '\0' == c4) {
+//                break;
+//            }
+//            if (c == '\0') {
+//                continue;
+//            }
+//            // 分离FastCIG服务器返回数据中的响应行与实体主体，耗费了非常多时间。
+//            // 细小问题，边断点边调试，解决速度更快。我不应该心算。
+//            // 若满足这串if条件，\r\n\r\n没有写进head
+//            // 这个分割响应头与实体主体的操作，我想了大概十多分钟，才认为下面的代码是正确的。
+//            // 没有运行，心算的。
+//            // 可以用 strtok 实现需求，不必像我这样写这样麻烦
+//            // strtok https://www.runoob.com/cprogramming/c-function-strtok.html
+//
+//            if (head_end_flag == false) {
+//                head += c;
+//                if ('\r' == c) {
+//                    recv(socket_fd, &c, sizeof(char), 1);
+//                    // 不能漏掉非最后一行响应行的\r\n
+////                    head += c;
+//                    if ('\n' == c) {
+//                        recv(socket_fd, &c, sizeof(char), 0);
+//                        head += c;
+//                        recv(socket_fd, &c, sizeof(char), 1);
+//                        if ('\r' == c) {
+//                            recv(socket_fd, &c, sizeof(char), 0);
+//                            recv(socket_fd, &c, sizeof(char), 1);
+//                            if ('\n' == c) {
+//                                recv(socket_fd, &c, sizeof(char), 0);
+//                                head_end_flag = true;
+//                            }
+//                        } else {
+//                            // 防止中间行的非\r\n遗漏
+//                            head += c;
+//                        }
+//                    }
+//                }
+//            } else {
+//                body += c;
+//            }
+        }
+
+        int content_length = content.size();
+
+        string head = "";
+        int i = 0;
+        for (i = 0; i < content_length; i++) {
+            char c = content[i];
+            head += c;
+            // 分离FastCIG服务器返回数据中的响应行与实体主体，耗费了非常多时间。
+            // 细小问题，边断点边调试，解决速度更快。我不应该心算。
+            // 若满足这串if条件，\r\n\r\n没有写进head
+            // 这个分割响应头与实体主体的操作，我想了大概十多分钟，才认为下面的代码是正确的。
+            // 没有运行，心算的。
+            // 可以用 strtok 实现需求，不必像我这样写这样麻烦
+            // strtok https://www.runoob.com/cprogramming/c-function-strtok.html
+            if ('\r' == c) {
+                i++;
+                c = content[i];
+                // 不能漏掉非最后一行响应行的\r\n
+//                    head += c;
+                if ('\n' == c) {
+                    head += c;
+                    i++;
+                    c = content[i];
+                    if ('\r' == c) {
+                        i++;
+                        c = content[i];
+                        if ('\n' == c) {
+                            break;
+                        }
+                    } else {
+                        // 防止中间行的非\r\n遗漏
+                        head += c;
+                    }
+                }
+            }
 //                c = content[i];
 
-            }
-            // 上面的if语句把最后那行响应行后面的换行符也跳过了，需要补上。
-            // 更新，上面那行注释，是错误的。不需要下面两行代码。
+        }
+
+        char *body = new char[content_length - i];
+//            strncpy(body, content, i + 1);    // 错误，最多复制i+1，而不是从i+1开始复制
+        strcpy(body, content.c_str() + i + 1);
+
+        data_from_fast_cgi_server->head_line = head;
+        data_from_fast_cgi_server->body = body;
+
+        return data_from_fast_cgi_server;
+
+//        char buf[40960];
+//        memset(buf, 0, 40960 * sizeof(char));     // todo 似乎可有可无？我执行代码，发现好像是这样。
+//        int n;
+//        // todo recv接收完合法数据后，竟然还会不停接收空白字符串。神奇，若不主动断开，陷入死循环。
+//        n = recv(socket_fd, buf, 40960 * sizeof(char), 0);
+//        if (n == -1) {
+//            return data_from_fast_cgi_server;
+//        }
+//        int l = strlen(buf);
+//        char *content = new char[l];
+//        strcpy(content, buf + 8);
+//        int content_length = strlen(content);
+//
+//        string head = "";
+//        int i = 0;
+//        for (i = 0; i < content_length; i++) {
+//            char c = content[i];
+//            head += c;
+//            // 分离FastCIG服务器返回数据中的响应行与实体主体，耗费了非常多时间。
+//            // 细小问题，边断点边调试，解决速度更快。我不应该心算。
+//            // 若满足这串if条件，\r\n\r\n没有写进head
+//            // 这个分割响应头与实体主体的操作，我想了大概十多分钟，才认为下面的代码是正确的。
+//            // 没有运行，心算的。
+//            // 可以用 strtok 实现需求，不必像我这样写这样麻烦
+//            // strtok https://www.runoob.com/cprogramming/c-function-strtok.html
+//            if ('\r' == c) {
+//                i++;
+//                c = content[i];
+//                // 不能漏掉非最后一行响应行的\r\n
+////                    head += c;
+//                if ('\n' == c) {
+//                    head += c;
+//                    i++;
+//                    c = content[i];
+//                    if ('\r' == c) {
+//                        i++;
+//                        c = content[i];
+//                        if ('\n' == c) {
+//                            break;
+//                        }
+//                    } else {
+//                        // 防止中间行的非\r\n遗漏
+//                        head += c;
+//                    }
+//                }
+//            }
+////                c = content[i];
+//
+//        }
+//
+//        char *body = new char[content_length - i];
+////            strncpy(body, content, i + 1);    // 错误，最多复制i+1，而不是从i+1开始复制
+//        strcpy(body, content + i + 1);
+//        data_from_fast_cgi_server.head_line = head;
+//        data_from_fast_cgi_server.body = body;
+
+        // 上面的if语句把最后那行响应行后面的换行符也跳过了，需要补上。
+        // 更新，上面那行注释，是错误的。不需要下面两行代码。
 //            head += '\r';
 //            head += '\n';
-            // comparison between NULL and non-pointer ('int' and NULL) [-Wnull-arithmetic]
+        // comparison between NULL and non-pointer ('int' and NULL) [-Wnull-arithmetic]
 //            if (i == NULL) {
 //                i = 0;
 //            }
 //            char body[content_length - i];        // todo 不能这样用数组
-            char *body = new char[content_length - i];
-//            strncpy(body, content, i + 1);    // 错误，最多复制i+1，而不是从i+1开始复制
-            strcpy(body, content + i + 1);
-            data_from_fast_cgi_server.head_line = head;
-            data_from_fast_cgi_server.body = body;
-        }
-
-        /******************************************************
-         * todo 这里停止接收数据是否正确？有没有遗漏这种情况：
-         * 在一个页面，同时出现错误信息和正常输出结果。这种情况，FastCGI
-         * 会先后返回FCGI_STDOUT和FCGI_STDERR数据报吗？
-         * 有空再验证并完善。
-         ******************************************************/
-        return data_from_fast_cgi_server;
+//        char *body = new char[content_length - i];
+////            strncpy(body, content, i + 1);    // 错误，最多复制i+1，而不是从i+1开始复制
+//        strcpy(body, content + i + 1);
+//        data_from_fast_cgi_server.head_line = head;
+//        data_from_fast_cgi_server.body = body;
+//
+//        cout << "n:" << n << endl;
+//        cout << "version:" << (int) buf[0] << endl;
+//        cout << "type:" << (int) buf[1] << endl;
+//        cout << "id:" << (int) ((buf[2] & 0xff) << 8) + (int) ((buf[3] & 0xff)) << endl;
+//        cout << "content_length:" << (int) ((buf[4] & 0xff) << 8) + (int) ((buf[5] & 0xff)) << endl;
+//        FILE *fp = fopen("/Users/cg/data/code/wheel/java/demo/html/log/data2.log","w");
+////        cout<<buf;
+//        fprintf(fp, "%s", buf);
+//        fclose(fp);
+//        int type = (int) buf[1];
+//        // 数据报不上标准输出和标准错误输出，停止接收数据
+//        if (type != FcgiRequestType::FCGI_STDOUT && type != FcgiRequestType::FCGI_STDERR) {
+////            return data_from_fast_cgi_server;
+//        }
+        // todo 这里也使用了变量初始化数组，为何没出现警告？
+//        int content_length = (int) ((buf[4] & 0xff) << 8) + (int) ((buf[5] & 0xff));
+//        char content[content_length];
+//        n = read(socket_fd, content, content_length);
+////        cout<<content;
+//        if (n == -1) {
+//            return data_from_fast_cgi_server;
+//        }
+//        char *ptr_content = new char[strlen(content)];
+//        strcpy(ptr_content, content);
+//        if (FcgiRequestType::FCGI_STDERR == type) {
+//            // 没有响应头
+//            data_from_fast_cgi_server.body = content;
+//        } else if (FcgiRequestType::FCGI_STDOUT == type) {
+//            string head = "";
+//            int i = 0;
+//            for (i = 0; i < content_length; i++) {
+//                char c = content[i];
+//                head += c;
+//                // 分离FastCIG服务器返回数据中的响应行与实体主体，耗费了非常多时间。
+//                // 细小问题，边断点边调试，解决速度更快。我不应该心算。
+//                // 若满足这串if条件，\r\n\r\n没有写进head
+//                // 这个分割响应头与实体主体的操作，我想了大概十多分钟，才认为下面的代码是正确的。
+//                // 没有运行，心算的。
+//                // 可以用 strtok 实现需求，不必像我这样写这样麻烦
+//                // strtok https://www.runoob.com/cprogramming/c-function-strtok.html
+//                if ('\r' == c) {
+//                    i++;
+//                    c = content[i];
+//                    // 不能漏掉非最后一行响应行的\r\n
+////                    head += c;
+//                    if ('\n' == c) {
+//                        head += c;
+//                        i++;
+//                        c = content[i];
+//                        if ('\r' == c) {
+//                            i++;
+//                            c = content[i];
+//                            if ('\n' == c) {
+//                                break;
+//                            }
+//                        } else {
+//                            // 防止中间行的非\r\n遗漏
+//                            head += c;
+//                        }
+//                    }
+//                }
+////                c = content[i];
+//
+//            }
+        // 上面的if语句把最后那行响应行后面的换行符也跳过了，需要补上。
+        // 更新，上面那行注释，是错误的。不需要下面两行代码。
+//            head += '\r';
+//            head += '\n';
+        // comparison between NULL and non-pointer ('int' and NULL) [-Wnull-arithmetic]
+//            if (i == NULL) {
+//                i = 0;
+//            }
+//            char body[content_length - i];        // todo 不能这样用数组
+//            char *body = new char[content_length - i];
+////            strncpy(body, content, i + 1);    // 错误，最多复制i+1，而不是从i+1开始复制
+//            strcpy(body, content + i + 1);
+//            data_from_fast_cgi_server.head_line = head;
+//            data_from_fast_cgi_server.body = body;
     }
+
+    /******************************************************
+     * todo 这里停止接收数据是否正确？有没有遗漏这种情况：
+     * 在一个页面，同时出现错误信息和正常输出结果。这种情况，FastCGI
+     * 会先后返回FCGI_STDOUT和FCGI_STDERR数据报吗？
+     * 有空再验证并完善。
+     ******************************************************/
+//        return data_from_fast_cgi_server;
+//    }
     return data_from_fast_cgi_server;
 }

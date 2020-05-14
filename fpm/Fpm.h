@@ -14,10 +14,10 @@ typedef struct {
     string query_string;
 } ParamsFromWebServer;
 
-typedef struct{
+typedef struct {
     string head_line;   // http 响应头
     string body;    // http 实体主体
-}DataFromFastCGIServer;
+} DataFromFastCGIServer;
 
 /**
  * 参考资料
@@ -28,11 +28,11 @@ class Fpm {
 public:
     const int CLIENT_PORT = 9000;
 
-    DataFromFastCGIServer run(ParamsFromWebServer params_from_web_server);
+    DataFromFastCGIServer * run(ParamsFromWebServer params_from_web_server);
 
     void create_packet(vector<char> *one_packet, ParamsFromWebServer params_from_web_server);
 
     void send_packet(int socket_fd, vector<char> packet);
 
-    DataFromFastCGIServer receive_data_from_server(int socket_fd);
+    DataFromFastCGIServer *receive_data_from_server(int socket_fd);
 };

@@ -274,9 +274,9 @@ void *accept_request(void *client_sock) {
         // http 请求中会包含这个请求头吗？
         params_from_web_server.content_type = "";
         params_from_web_server.content_length = request.content_length;
-        DataFromFastCGIServer data_from_fast_cgi_server = fpm.run(params_from_web_server);
-        string content = data_from_fast_cgi_server.body;
-        string head_line = data_from_fast_cgi_server.head_line;
+        DataFromFastCGIServer *data_from_fast_cgi_server = fpm.run(params_from_web_server);
+        string content = data_from_fast_cgi_server->body;
+        string head_line = data_from_fast_cgi_server->head_line;
         cout << head_line;
         cout << "=============================" << endl;
         cout << content;    // 打印来自FastCGI server的数据

@@ -401,6 +401,15 @@ Process finished with exit code 13
 ```
 
 1. 在`FastCGI`客户端中，若没有close(socket)，就会出现：在第二次请求PHP文件时，被卡住。这是为什么？
+2. http-server(23678,0x700005c99000) malloc: Incorrect checksum for freed object 0x7f920fb00018: probably modified after being freed.
+Corrupt value: 0x414e454c49465f54
+http-server(23678,0x700005c99000) malloc: *** set a breakpoint in malloc_error_break to debug
+
+Process finished with exit code 6
+3. recv的参数MSG_PEEK
+4. strcpy，复制"hello\0world"，只能复制"hello"，不能复制\0后面的数据。
+5. char数组、string，都不能存储带有\0的完整数据，只能存储\0前面的数据。
+6. php-fpm返回phpinfo的数据，很坑，数据报中的head部分长度，根本没有包含整个页面数据，而且，还有大量\0。
 
 ## 实现fcgi客户端难点
 ### 将字符串转为二进制形式
