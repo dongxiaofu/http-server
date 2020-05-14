@@ -406,6 +406,27 @@ Corrupt value: 0x414e454c49465f54
 http-server(23678,0x700005c99000) malloc: *** set a breakpoint in malloc_error_break to debug
 
 Process finished with exit code 6
+
+set a breakpoint in malloc_error_break to debug 的操作步骤，见下图：
+
+![set a breakpoint in malloc_error_break](note-picture/1-3.png)
+
+不过，这个断点显示信息是汇编，我看不懂。仅仅只能帮我定位错误发生的那块代码。
+
+这个错误发生在：
+
+```
+char *body = new char[content_length - i];
+strcpy(body, content.c_str() + i + 1);
+
+data_from_fast_cgi_server->head_line = head;
+data_from_fast_cgi_server->body = body;
+```
+
+当`content_length - i`为0时，出现这个错误。`new char[0]`表示这个对象已经释放了吗？
+
+
+
 3. recv的参数MSG_PEEK
 4. strcpy，复制"hello\0world"，只能复制"hello"，不能复制\0后面的数据。
 5. char数组、string，都不能存储带有\0的完整数据，只能存储\0前面的数据。

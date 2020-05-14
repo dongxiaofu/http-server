@@ -269,7 +269,7 @@ void *accept_request(void *client_sock) {
         Fpm fpm;
         ParamsFromWebServer params_from_web_server;
         params_from_web_server.uri = request.file_path;
-        params_from_web_server.query_string = request.file_path;
+        params_from_web_server.query_string = request.query_string;
         params_from_web_server.http_body = data_from_client;
         // http 请求中会包含这个请求头吗？
         params_from_web_server.content_type = "";
@@ -316,6 +316,7 @@ void *accept_request(void *client_sock) {
             cout << content;
         }
         close(tmp);
+        delete data_from_fast_cgi_server;
         return nullptr;
     }
     // 静态请求
