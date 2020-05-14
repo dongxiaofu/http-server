@@ -361,10 +361,321 @@ Content-Disposition: form-data; name="age"
 
 以上是我看半年前的java代码实现后回忆内容。后面，我会根据java代码写出完全符合代码的文档。
 #### 实际实现
+#### 解析FastCGI服务端返回数据
+##### 接收完全部数据停止接收
+1. FastCGI服务端没有发送`type`为`FCGI_END_REQUEST`的数据报。我测试时是这样。在正常数据发送完毕后，不停发送了`FCGI_DATA`和`type=101`的数据报。
+2. 接收为`type`为`FCGI_STDOUT`或`FCGI_STDERR`数据报后，客户端终止接收数据的流程。这两种数据类型不会同时出现。
+
+#### 奇怪的问题
+1. 页面刷新太快时，进程退出，`Process finished with exit code 11`。
+2. 浏览器发送完HTTP请求体后，不断开连接，还继续不停发送空白字符(0)。
+3. 隐蔽的问题：1>`\r\n`与保护这两个字符的一行数据（字符串）比较是否相等；2>读取实体主体
+
+```
+string read_body(int socket_fd, int content_length) {
+    string body;
+    char data[1024];
+    while (recv(socket_fd, data, sizeof(char) * 1024, 0) != -1) {
+        body += data;
+        if (body.size() == content_length) {
+            break;
+        }
+    }
+
+    return body;
+}
+```
+
+当`content_length`是0时，这个循环成为死循环，只要浏览器不断开socket连接。诡异，浏览器没有数据还会继续发送空白字符。
+
+第3个问题，耗费了一个下午。完成FastCGI客户端后，剩下的整合工作，很简单，很快就能完成。没想到，遇到了三个bug，从下午三四点一直弄到现在。
+
+1. bind被重载。偶然发现了错误。
+2. 以前能运行的处理http请求的代码，不能用了。错误是上面第3点描述的。代码多了，一运行，只知道不正常，不知道错在哪里。断点调试不够细致，几次错过bug出现处，导致多次断点才能定位出错误点。
+3. 断点过程中，出现多个线程，有的线程接收不到数据，导致进程退出。不知道这是常态，还是断点导致的。这是很诡异的容易误导定位错误的问题。
+4. 刷新页面频繁，进程退出，不知道原因，不知道是哪里导致退出。
+5. 频繁刷新页面导致的问题有：
+
+```
+Process finished with exit code 13
+```
+
+1. 在`FastCGI`客户端中，若没有close(socket)，就会出现：在第二次请求PHP文件时，被卡住。这是为什么？
+
+## 实现fcgi客户端难点
+### 将字符串转为二进制形式
+
+涉及到函数返回数组、遍历数组、数组传参。若使用C风格，后面两个，需要同时提供对应数组大小。
+
+### 构造协议规定的格式的二进制数据，用c++语法实现，代码改写，调试。
+### 向php发送数据后，没有任何返回，哪里不对？如何调试？
+#### 无脑调试
+多次执行代码，结果不正确还是继续执行。这是导致低效的老毛病。
+#### 使用简单fcgi服务端
+下载了一个实现fcgi服务端的代码。我寄希望于查看该代码运行日志，检查我的fcgi客户端错在什么地方。
+但这个服务端代码本身有问题，我不能快速将之调整正确。最后放弃了这个思路。
+
+不过，这个代码，却导致我最终找到了错误原因。它使用`char`类型构造数据包。
+#### 看php-fpm日志
+##### gdb
+在mac上使用gdb查看进程的命令是：
+
+`sudo gdb <pid>`。
+
+用其他命令，遇到过错误：
+
+`Unable to find Mach task port for process-id 47072: (os/kern) failure (0x5).
+(please check gdb is codesigned - see taskgated(8)) `。
+
+gdb信息中没有可用于解决我的问题的有用信息。
+##### php-fpm.log
+执行有语法错误的php代码，能在这里看到一些日志：
+
+```
+[12-May-2020 17:21:17] WARNING: [pool www] child 71791 said into stderr: "NOTICE: PHP message: PHP Fatal error:  Cannot redeclare test() (previously declared in /Users/cg/data/www/cg/test.php:4) in /Users/cg/data/www/cg/test.php on line 6"
+[12-May-2020 17:21:17] WARNING: [pool www] child 71791 said into stderr: "NOTICE: PHP message: PHP Stack trace:"
+[12-May-2020 17:21:17] WARNING: [pool www] child 71791 said into stderr: "NOTICE: PHP message: PHP   1. {main}() /Users/cg/data/www/cg/test.php:0"
+[12-May-2020 17:21:17] WARNING: [pool www] child 71791 said into stderr: "NOTICE: PHP message: PHP   2. test() /Users/cg/data/www/cg/test.php:12"
+```
+
+*对检查fcgi客户端为何不正确，作用不大。唯一作用是：检测fcgi客户端能否与php-fpm正确交互，发送数据，接收返回数据。*
+
+在这之前，我无法确定我的fcgi客户端的错误是下面的哪个：
+
+1. 数据报不正确
+2. 网络发送方法不正确
+
+最开始，为了确定是哪个问题，我抓取了去年用java写的fcgi客户端发送的数据报，用本客户端发送，可总是接收不到任何数据。我没有猜测是哪个问题。
+
+#### 解决
+我使用正确的数据报，一个`int`数组，断点调试，发送到第二个数据的时候，程序意外退出，错误信息：
+
+`Terminated due to signal 13`，
+
+不断点运行，数据报全部发送到服务端，可是没有收到任何数据。在java那个客户端正确的数据，在本代码中仍然不正确。
+我尝试将`int`数组改成`char`数组，数据报就正确了，发到服务端，收到回应数据了。
+
+数据报中有负数，这正确吗？
+
+解决这个问题，太偶然了。
+
+如果，我准确理解了fcgi协议，是不是一开始就能够使用`char`数组构造数据报而不是`int`数组？
+
+问题并未完全解决，只是证明，数据发送无问题，还需要检查，我构造的数据报有没有问题。
+
+仍然没能构造出正确的数据报，而且，不知道哪里错了，明天，就要暂时搁置fcgi客户端的开发。已经花费了两天时间。
+
+*终于构造出了正确的数据报，FastCGI客户端完成*。
+
+依靠看java代码和FastCGI服务端代码，改正了c++代码，关键改动有两处:
+
+1. 把内容从字符串形式转成`char`数组或`vector<char>`，而不是二进制形式。起初受了java中`getBytes`方法误导。该方法返回结果是`byte[]`，等价于c++中的`char`数组。
+2. `FCGI_END_REQUEST`和`FCGI_PARAMS`结束标识符，内容都是空，内容长度也是0，我原来写成了内容中包含一个0，长度是1。
+3. 使用`char`数组而不是`int`数组。对此，我仍不理解。
+4. 使用`vector`构造数据报，而不是`int size=8;int arr[size];`这种形式。在c++中，不能这样使用(不同版本c++有不同规定？待确定）。若提前看书，我根本不会犯这个错误。就算没有提前看书，也应该早点发现这种用法有问题，而我却花了很长时间才意识到这个问题。我发现，这种意图在于实现边长数组的错误用法产生的数组，包含远超我设置的数组大小的元素。这在任何时候都是错误的，更谈不上构造正确的数据报。
+
+##### 相关资料
+
+`#define SIGPLPE 13 /* write on a pipe with no one to read it */`。
+
+1. 管道破裂，这个信号通常在进程间通信产生，比如采用 FIFO(管道)通信的两个进程，读管道没打开或者意外终止就往管道写，写进程会收到 SIGPIPE 信号. 此外用 Socket 通信的两个进程，写进程在写 Socket 的时候，读进程已经终止. 另外, 在send/write 时会引起管道破裂，关闭 Socket, 管道时也会出现管道破裂. 使用 Socket 一般都会收到这个SIGPIPE 信号.简单来说就是和socket通信以及数据的读写相关联。这样一来就能大体猜到为什么在切换到前台或者重新解锁手机的时候出现crash现象了。
+2. signal 13 这种错误是系统发出来的, 和内存使用异常和野指针一样，由于是系统级别崩溃，所以不能通过@try,catch捕获异常。
+
+![Terminated due to signal X](note-picture/1-2.png)
+
+
+
+
+
+
 
 ## 疑问
 ### 向静态页面或非处理POST请求的页面发送POST请求
 会返回什么？
+
+## cpp使用疑惑
+
+### 数组参数
+是否同时需要传递数组的大小？
+
+### 数组返回值
+是否需要同时返回数组大小？
+
+若不如此，如何遍历数组？前提是不使用c++的`vector`。
+
+如何获取数组的大小？
+
+### 使用指针实现动态数组
+不知道数组大小，但是需要通过一个函数给这个数组赋值。我将此数组用指针形式传参给函数，然后在函数里给此数组赋值。在函数内，把指针当数组用。
+
+这种用法，任何场景下都是合法的吗？
+
+在函数内部，声明一个指针，然后把这个指针当数组用，我遇到的情况：有时候正确，有时候不正确。原因未知。
+
+```
+// 这种写法，有时可以，有时不行，在 demo/cout_demo.cpp中可以。奇怪。
+int *t1;
+int *test;
+int *nums;
+```
+第一个是`NULL`，后面两个相等，详情见图：
+![指针错误](note-picture/1-1.png)
+
+可是，下面的代码，又能正常运行：
+
+```
+#include <iostream>
+
+using namespace std;
+
+typedef struct {
+    int size;
+    int *data;
+} DEMO;
+
+void test();
+
+int main() {
+    cout << "hello" << endl;
+    test();
+    return 0;
+}
+
+void test() {
+    int *nums;
+    for (int i = 0; i < 3; i++) {
+        nums[i] = i;
+    }
+    for (int i = 0; i < 3; i++) {
+        cout << "nums:" << nums[i] << endl;
+    }
+    DEMO demo = {3, nums};
+    int *nums2 = demo.data;
+    for (int i = 0; i < 3; i++) {
+        cout << demo.data[i] << endl;
+    }
+}
+```
+
+原因未知，我就不用这种”使用指针来实现动态数组“的写法了。
+
+### cpp使用socket发送与接收vector
+1.我模仿`java`代码，逐个字符发送。
+### cpp/c将字符串和整型数字混合写入文件
+
+### cpp/c将一组数组写入文件
+用`fprintf`。
+
+## cpp常见错误或警告
+
+1. `warning: control may reach end of non-void function [-Wreturn-type]`该函数返回类型为int，可能出现无返回结果的情况。
+2.  `warning: address of stack memory associated with local variable 'content' returned [-Wreturn-stack-address]`
+
+下面的代码出现这个警告。
+
+```
+char *get_content()
+{
+	char content[200] = "hello,world";
+	return content;
+}
+```
+
+```
+char *ptr;
+void get_content(char *ptr)
+{
+	char content[200] = "hello,world!";
+	ptr = content;
+}
+```
+
+函数内部的`content`是一个字符串数组。在函数return之后这个get_name会释放内存（因为它在栈中，函数执行完会弹栈）。所以main函数中的name变成了一个野指针，这是一个很危险的操作。
+
+*解决办法：返回一个在堆中的地址。*
+
+正确的写法：
+
+```
+char *get_name() {
+    char get_name[30];
+    cout << "Enter your name :";// a word
+    cin >> get_name;
+    char *name = new char[strlen(get_name) + 1];
+    strcpy(name, get_name);// do not use name = get_name
+    //because name will get get_name address it's in the stack
+    //it is stupid idea.
+    return name;
+}
+```
+
+返回数据为`int`类型，这种写法无问题。
+
+```
+int max(int num1, int num2) {
+    // 局部变量声明
+    int result;
+    if (num1 > num2)
+        result = num1;
+    else
+        result = num2;
+    return result;
+}
+```
+
+函数要通过返回值传递数据，该如何写？
+
+3. `EXEC_BAD_ACCESS`
+
+向已经释放的对象发送消息时会出现EXC_BAD_ACCESS。当出现错误时，通常会调用堆栈信息，特别是在多线程的情况下，其实就是使用了野指针。
+
+发生错误的代码
+
+```
+bool is_dynamic_request(string filename) {
+    // 不明白为何要加上const，ide提示需要这么做。
+    const char *suffix = strrchr(filename.c_str(), '.');
+    suffix++;
+    if (strcasecmp(suffix, "php") == 0) {
+        return true;
+    }
+    return false;
+}
+```
+
+当`*suffix = ""`时，在`suffix++`出现`EXEC_BAD_ACCESS`。
+
+首先说一下 EXC_BAD_ACCESS 这个错误，可以这么说，90%的错误来源在于对一个已经释放的对象进行release操作。
+
+## 多线程
+http服务器使用多线程处理客户端连接，出现多线程之间互相干扰的情况。一个线程正在处理一个连接，另外一个线程，没有收到需要的变量，导致整个进程崩溃。另外一个线程，不是因为接收到新请求而打开的吗？为什么变量没有接收到需要的值？
+
+断点时遇到上面的问题，运行时，还没有遇到过上面的问题。
+
+
+## 基础知识
+### 字符串转为二进制
+```
+void to_binary(char c) {
+    int i;
+    for (i = 7; i >= 0; i--)
+        printf("%d", (c & 1 << i) != 0);
+    printf(" ");
+}
+```
+
+不能顺畅理解。理解了。
+
+在做位移运算时，会自动将左操作数转成二进制表示的数。逐个获取操作数的每个位置上的数（准确叫法是符号，1或0），从左往右，将这些数存储到整型数组中。结果就是该操作数的二进制形式。
+
+```
+10 & 10 == 10
+01 & 10 == 00
+```
+
+这就是需要使用`&`的原因。
+
+除目标位置有可能不为0外，其他位置一定全部是0，所以，`&`运算结果不是0是目标位置不是0的充要条件。
 
 
 
