@@ -12,7 +12,7 @@
 #include "fpm/Fpm.h"
 
 const string HTDOCS = "/Users/cg/data/code/wheel/cpp/http-server/htdocs";
-const int SERVER_PORT = 80;
+const int SERVER_PORT = 81;
 
 
 typedef struct {
@@ -56,7 +56,7 @@ int main() {
     pthread_t newthread;
     struct sockaddr_in client_name;
     int client_name_len = sizeof(client_name);
-    server_sock = startup(80);
+    server_sock = startup(SERVER_PORT);
     std::cout << "httpd running on port 80" << std::endl;
     while (1) {
         try {
@@ -226,27 +226,59 @@ void *accept_request(void *client_sock) {
         // 反正这里可以执行，无警告
         char tmp[] = "Content-Length";
         if (strncasecmp(line.c_str(), tmp, strlen(tmp)) == 0) {
-            const char *content_length = strrchr(line.c_str(), ':');
+            const char *content_length_with_lf_cr = strrchr(line.c_str(), ':');
             // 这里其实应该判断content_length是否为NULL，先算了
             // 忽略冒号:
-            content_length++;
+            content_length_with_lf_cr++;
             // content_length是字符串形式的数字，过滤Content-Length: 789中可能存在的空字符串
-            for (int i = 0; i < strlen(content_length); i++) {
-                if (strcasecmp(&content_length[i], "") == 0) {
-                    content_length++;
+            for (int i = 0; i < strlen(content_length_with_lf_cr); i++) {
+                if (strcasecmp(&content_length_with_lf_cr[i], "") == 0) {
+                    content_length_with_lf_cr++;
                 } else {
                     break;
                 }
             }
+            char content_length[16];
+            bzero(content_length, sizeof(content_length));      // 是不是必要的？
+            // 清除字符串末尾的\r\n
+            for (int i = 0; i < strlen(content_length_with_lf_cr); i++) {
+                char c = content_length_with_lf_cr[i];
+                if (c == '\r') {
+                    content_length[i] = '\0';
+                    break;
+                }
+                content_length[i] = c;
+            }
             request.content_length = content_length;
         }
+
+        char tmp2[] = "Content-Type";
+        if (strncasecmp(line.c_str(), tmp2, strlen(tmp2)) == 0) {
+            const char *content_type_with_lf_cr = strrchr(line.c_str(), ':');
+            // 这里其实应该判断content_type是否为NULL，先算了
+            // 忽略冒号:
+            content_type_with_lf_cr++;
+            // 清除字符串末尾的\r\n
+            char content_type[1024];
+            for (int i = 0; i < strlen(content_type_with_lf_cr); i++) {
+                char c = content_type_with_lf_cr[i];
+                if (c == '\r') {
+                    content_type[i] = '\0';
+                    break;
+                }
+                content_type[i] = c;
+            }
+            request.content_type = content_type;
+
+        }
+
         // 打印请求行
 //        std::cout << line;
         if (is_lf_cr(line)) {
             break;
         }
     }
-
+    vector<char> body_from_client;
     string full_file_path = HTDOCS + request.file_path;
     // 读取实体主体
     int content_length = atoi(request.content_length.c_str());
@@ -256,6 +288,7 @@ void *accept_request(void *client_sock) {
         string body = read_body(tmp, content_length);
         for (int i = 0; i < body.size(); i++) {
             data_from_client.push_back(body[i]);
+            body_from_client.push_back(body[i]);
         }
     }
 
@@ -268,11 +301,13 @@ void *accept_request(void *client_sock) {
     if (is_dynamic_request(request.file_path)) {
         Fpm fpm;
         ParamsFromWebServer params_from_web_server;
+        params_from_web_server.method = requet_method;
         params_from_web_server.uri = request.file_path;
         params_from_web_server.query_string = request.query_string;
-        params_from_web_server.http_body = data_from_client;
-        // http 请求中会包含这个请求头吗？
-        params_from_web_server.content_type = "";
+//        params_from_web_server.http_body = data_from_client;
+        params_from_web_server.http_body = body_from_client;
+        // http 请求中会包含这个请求头吗？提交表单时会包含
+        params_from_web_server.content_type = request.content_type;
         params_from_web_server.content_length = request.content_length;
         DataFromFastCGIServer *data_from_fast_cgi_server = fpm.run(params_from_web_server);
         string content = data_from_fast_cgi_server->body;
@@ -303,6 +338,7 @@ void *accept_request(void *client_sock) {
                 sprintf(buf, "Content-Length:%d\r\n", content_len);
                 send(tmp, buf, strlen(buf), 0);
 
+                // todo 需要手动在buf后面加上\0吗？
                 strcpy(buf, "\r\n");
                 send(tmp, buf, strlen(buf), 0);
                 send(tmp, content.c_str(), content_len, 0);
@@ -313,11 +349,30 @@ void *accept_request(void *client_sock) {
             }
         } else if ("POST" == requet_method) {
             // 不知道php-fpm会返回什么，暂时只输出
-            cout << content;
+            strcpy(buf, "HTTP/1.1 200 OK\r\n");
+            send(tmp, buf, strlen(buf), 0);
+            if (content_len > 0) {
+                string head =
+                        "Server: cg-http-server/0.1\r\n"
+                        "Connection: keep-alive\r\n";
+                // FastCGI服务器返回数据若有响应行，会返回content-type
+                if (head_line.size()) {
+                    head += head_line;
+                } else {
+                    head += "Content-Type:text/html\r\n";
+                }
+                send(tmp, head.c_str(), head.size(), 0);
+                sprintf(buf, "Content-Length:%d\r\n", content_len);
+                send(tmp, buf, strlen(buf), 0);
+
+                strcpy(buf, "\r\n");
+                send(tmp, buf, strlen(buf), 0);
+                send(tmp, content.c_str(), content_len, 0);
+            }
+            close(tmp);
+            delete data_from_fast_cgi_server;
+            return nullptr;
         }
-        close(tmp);
-        delete data_from_fast_cgi_server;
-        return nullptr;
     }
     // 静态请求
     /*****************************************************************
@@ -407,7 +462,7 @@ void *accept_request(void *client_sock) {
 //        std::cout << "==============================body end=====================" << std::endl;
     }
 
-    sleep_ms(2);
+    sleep_ms(1);
     close(tmp);
 
     return nullptr;
@@ -519,9 +574,16 @@ void sleep_ms(unsigned int secs) {
 string read_body(int socket_fd, int content_length) {
     string body;
     char data[1024];
+//    bzero(data, 1024 * sizeof(char ));
     while (recv(socket_fd, data, sizeof(char) * 1024, 0) != -1) {
+        cout << "=========== read_body start=============" << endl;
+        cout << data << endl;
+        cout << "=========== read_body end=============" << endl;
         body += data;
-        if (body.size() == content_length) {
+        int body_size = body.size();
+        // 不知道为什么，有时候body_size略大于content_length
+        if (body_size >= content_length) {
+            cout << "============ read_body break===========" << endl;
             break;
         }
     }

@@ -1,10 +1,15 @@
 #include <iostream>
+#include <vector>
 
 using namespace std;
 
 int main()
 {
-	string str = "AB";
+	string string1 = "ABC";
+	cout <<string1.c_str()<<endl;
+    vector<char> body_from_client;
+	cout<<body_from_client.data()<<endl;
+    string str = "AB";
 	for(int i=0;i<str.size();i++){
 		cout << str[i] << endl;
 	}

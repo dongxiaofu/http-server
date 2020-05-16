@@ -12,6 +12,7 @@ typedef struct {
     string uri;
     vector<char> http_body;
     string query_string;
+    string method;
 } ParamsFromWebServer;
 
 typedef struct {
@@ -35,4 +36,6 @@ public:
     void send_packet(int socket_fd, vector<char> packet);
 
     DataFromFastCGIServer *receive_data_from_server(int socket_fd);
+
+    void send_packet_test(int socket_fd);
 };
