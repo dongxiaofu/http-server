@@ -20,5 +20,6 @@ public:
     string cache_control;
     // 应该使用 int 吗？
     string content_length;
+    string content_type;
 };
 

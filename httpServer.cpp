@@ -8,6 +8,7 @@
 #include <fstream>
 #include <sstream>
 #include <sys/stat.h>
+#include <dirent.h>
 #include "Request.h"
 #include "fpm/Fpm.h"
 
@@ -50,13 +51,26 @@ bool is_dynamic_request(string filename);
 // 检查是不是\r\n
 bool is_lf_cr(string line);
 
+// 获取主机目录，用html列表展示
+string get_host_index(string dir);
+
+struct file_entry {
+    string name;
+    int size;
+};
+
+// 读取文件列表
+vector<struct file_entry> get_file_list(string file);
+
+int get_file_size(string file);
+
 int main() {
     int server_sock = -1;
     int client_sock;
     pthread_t newthread;
     struct sockaddr_in client_name;
     int client_name_len = sizeof(client_name);
-    server_sock = startup(80);
+    server_sock = startup(SERVER_PORT);
     std::cout << "httpd running on port 80" << std::endl;
     while (1) {
         try {
@@ -226,27 +240,59 @@ void *accept_request(void *client_sock) {
         // 反正这里可以执行，无警告
         char tmp[] = "Content-Length";
         if (strncasecmp(line.c_str(), tmp, strlen(tmp)) == 0) {
-            const char *content_length = strrchr(line.c_str(), ':');
+            const char *content_length_with_lf_cr = strrchr(line.c_str(), ':');
             // 这里其实应该判断content_length是否为NULL，先算了
             // 忽略冒号:
-            content_length++;
+            content_length_with_lf_cr++;
             // content_length是字符串形式的数字，过滤Content-Length: 789中可能存在的空字符串
-            for (int i = 0; i < strlen(content_length); i++) {
-                if (strcasecmp(&content_length[i], "") == 0) {
-                    content_length++;
+            for (int i = 0; i < strlen(content_length_with_lf_cr); i++) {
+                if (strcasecmp(&content_length_with_lf_cr[i], "") == 0) {
+                    content_length_with_lf_cr++;
                 } else {
                     break;
                 }
             }
+            char content_length[16];
+            bzero(content_length, sizeof(content_length));      // 是不是必要的？
+            // 清除字符串末尾的\r\n
+            for (int i = 0; i < strlen(content_length_with_lf_cr); i++) {
+                char c = content_length_with_lf_cr[i];
+                if (c == '\r') {
+                    content_length[i] = '\0';
+                    break;
+                }
+                content_length[i] = c;
+            }
             request.content_length = content_length;
         }
+
+        char tmp2[] = "Content-Type";
+        if (strncasecmp(line.c_str(), tmp2, strlen(tmp2)) == 0) {
+            const char *content_type_with_lf_cr = strrchr(line.c_str(), ':');
+            // 这里其实应该判断content_type是否为NULL，先算了
+            // 忽略冒号:
+            content_type_with_lf_cr++;
+            // 清除字符串末尾的\r\n
+            char content_type[1024];
+            for (int i = 0; i < strlen(content_type_with_lf_cr); i++) {
+                char c = content_type_with_lf_cr[i];
+                if (c == '\r') {
+                    content_type[i] = '\0';
+                    break;
+                }
+                content_type[i] = c;
+            }
+            request.content_type = content_type;
+
+        }
+
         // 打印请求行
 //        std::cout << line;
         if (is_lf_cr(line)) {
             break;
         }
     }
-
+    vector<char> body_from_client;
     string full_file_path = HTDOCS + request.file_path;
     // 读取实体主体
     int content_length = atoi(request.content_length.c_str());
@@ -256,6 +302,7 @@ void *accept_request(void *client_sock) {
         string body = read_body(tmp, content_length);
         for (int i = 0; i < body.size(); i++) {
             data_from_client.push_back(body[i]);
+            body_from_client.push_back(body[i]);
         }
     }
 
@@ -268,11 +315,13 @@ void *accept_request(void *client_sock) {
     if (is_dynamic_request(request.file_path)) {
         Fpm fpm;
         ParamsFromWebServer params_from_web_server;
+        params_from_web_server.method = requet_method;
         params_from_web_server.uri = request.file_path;
         params_from_web_server.query_string = request.query_string;
-        params_from_web_server.http_body = data_from_client;
-        // http 请求中会包含这个请求头吗？
-        params_from_web_server.content_type = "";
+//        params_from_web_server.http_body = data_from_client;
+        params_from_web_server.http_body = body_from_client;
+        // http 请求中会包含这个请求头吗？提交表单时会包含
+        params_from_web_server.content_type = request.content_type;
         params_from_web_server.content_length = request.content_length;
         DataFromFastCGIServer *data_from_fast_cgi_server = fpm.run(params_from_web_server);
         string content = data_from_fast_cgi_server->body;
@@ -303,6 +352,7 @@ void *accept_request(void *client_sock) {
                 sprintf(buf, "Content-Length:%d\r\n", content_len);
                 send(tmp, buf, strlen(buf), 0);
 
+                // todo 需要手动在buf后面加上\0吗？
                 strcpy(buf, "\r\n");
                 send(tmp, buf, strlen(buf), 0);
                 send(tmp, content.c_str(), content_len, 0);
@@ -313,11 +363,30 @@ void *accept_request(void *client_sock) {
             }
         } else if ("POST" == requet_method) {
             // 不知道php-fpm会返回什么，暂时只输出
-            cout << content;
+            strcpy(buf, "HTTP/1.1 200 OK\r\n");
+            send(tmp, buf, strlen(buf), 0);
+            if (content_len > 0) {
+                string head =
+                        "Server: cg-http-server/0.1\r\n"
+                        "Connection: keep-alive\r\n";
+                // FastCGI服务器返回数据若有响应行，会返回content-type
+                if (head_line.size()) {
+                    head += head_line;
+                } else {
+                    head += "Content-Type:text/html\r\n";
+                }
+                send(tmp, head.c_str(), head.size(), 0);
+                sprintf(buf, "Content-Length:%d\r\n", content_len);
+                send(tmp, buf, strlen(buf), 0);
+
+                strcpy(buf, "\r\n");
+                send(tmp, buf, strlen(buf), 0);
+                send(tmp, content.c_str(), content_len, 0);
+            }
+            close(tmp);
+            delete data_from_fast_cgi_server;
+            return nullptr;
         }
-        close(tmp);
-        delete data_from_fast_cgi_server;
-        return nullptr;
     }
     // 静态请求
     /*****************************************************************
@@ -336,9 +405,20 @@ void *accept_request(void *client_sock) {
         return nullptr;
     }
     if ("GET" == requet_method) {
-        int content_len;
-        bool is_picture = file_is_picture(full_file_path);
+        int content_len = -1;
         const char *content;
+        bool is_picture;
+        // 没有index.html时，显示网站列表
+        struct stat stat1;
+        stat(full_file_path.c_str(), &stat1);
+        if (S_ISDIR(stat1.st_mode)) {
+            string file_list_html = get_host_index(full_file_path);
+            content = file_list_html.c_str();
+            content_len = strlen(content);
+            is_picture = false;
+        } else {
+            is_picture = file_is_picture(full_file_path);
+        }
         /********************************************************************
          * 文本文件可以逐行读取，图片却不行。与处理HTTP请求行与实体主体一样，用不同方式读取。
          ********************************************************************/
@@ -348,11 +428,13 @@ void *accept_request(void *client_sock) {
             content = picture.data.c_str();
             content_len = picture.len;
         } else {
-            std::cout << "file:" << client_sock << full_file_path << std::endl;
-            string file_content = read_file(full_file_path);
-            content = file_content.c_str();
+            std::cout << "file_entry:" << client_sock << full_file_path << std::endl;
+            if (content_len < 0) {
+                string file_content = read_file(full_file_path);
+                content = file_content.c_str();
 //            content_len = sizeof(content);    // todo 这个方式，行不行？strlen呢？
-            content_len = file_content.size();
+                content_len = file_content.size();
+            }
         }
 
         if (content_len > 0) {
@@ -364,23 +446,31 @@ void *accept_request(void *client_sock) {
             FILE_META file_meta;
             file_meta.size = buf2.st_size;
             file_meta.name = request.file_path;
+            int suffix_len;
             const char *suffix = strrchr(request.file_path.c_str(), '.');
-            // todo 也应该需要加判断的，防止指针越界。
-            suffix++;
+            // 需要加判断的，防止指针越界。
+            if (suffix == NULL || strlen(suffix) == 0) {
+                suffix_len = 0;
+                suffix = "";
+            } else {
+                suffix++;
+                // 针对执行suffix++前，suffix是.的情况
+                suffix_len = strlen(suffix);
+            }
             file_meta.suffix = suffix;
 
             string head =
                     "Server: cg-http-server/0.1\r\n"
                     "Connection: keep-alive\r\n";
-            if (strcasecmp(file_meta.suffix, "jpg") == 0) {
+            if (suffix_len == 0) {  // 比如，当uri是一个目录时
+                head += "Content-Type:text/html\r\n";
+                send(tmp, head.c_str(), head.size(), 0);
+            } else if (strcasecmp(file_meta.suffix, "jpg") == 0) {
                 head += "Content-Type: image/";
                 head += "jpeg\r\n";
             } else if (strcasecmp(file_meta.suffix, "png") == 0) {
                 head += "Content-Type: image/";
                 head += "png\r\n";
-            } else {
-                head += "Content-Type:text/html\r\n";
-                send(tmp, head.c_str(), head.size(), 0);
             }
 
             if (is_picture) {
@@ -407,7 +497,7 @@ void *accept_request(void *client_sock) {
 //        std::cout << "==============================body end=====================" << std::endl;
     }
 
-    sleep_ms(2);
+    sleep_ms(1);
     close(tmp);
 
     return nullptr;
@@ -519,9 +609,16 @@ void sleep_ms(unsigned int secs) {
 string read_body(int socket_fd, int content_length) {
     string body;
     char data[1024];
+//    bzero(data, 1024 * sizeof(char ));
     while (recv(socket_fd, data, sizeof(char) * 1024, 0) != -1) {
+        cout << "=========== read_body start=============" << endl;
+        cout << data << endl;
+        cout << "=========== read_body end=============" << endl;
         body += data;
-        if (body.size() == content_length) {
+        int body_size = body.size();
+        // 不知道为什么，有时候body_size略大于content_length
+        if (body_size >= content_length) {
+            cout << "============ read_body break===========" << endl;
             break;
         }
     }
@@ -530,8 +627,15 @@ string read_body(int socket_fd, int content_length) {
 }
 
 bool is_dynamic_request(string filename) {
+    if (filename.size() == 0) {
+        return false;
+    }
     // 不明白为何要加上const，ide提示需要这么做。
     const char *suffix = strrchr(filename.c_str(), '.');
+    // 没有这个判断，下面的suffix++越界
+    if (suffix == NULL || strlen(suffix) == 0) {
+        return false;
+    }
     suffix++;
     if (strcasecmp(suffix, "php") == 0) {
         return true;
@@ -622,4 +726,77 @@ PICTURE read_picture3(string file_path) {
     delete[] buffer;
 
     return picture;
+}
+
+string get_host_index(string dir) {
+    string list_html = "<!DOCTYPE html>\n"
+                       "<html lang=\"en\">\n"
+                       "<head>\n"
+                       "    <meta charset=\"UTF-8\">\n"
+                       "    <title>网站列表</title>\n"
+                       "</head>\n"
+                       "<body>";
+    vector<struct file_entry> file_list = get_file_list(dir);
+    string file_list_str = "<ul>";
+    for (vector<struct file_entry>::iterator it = file_list.begin(); it < file_list.end(); it++) {
+        string name = (*it).name;
+        int size = (*it).size;
+        file_list_str += "<li>";
+        file_list_str += "<a href=\"/" + name + "\">" + name + "---------------";
+        char tmp[10];
+        sprintf(tmp, "%d", size);
+        file_list_str += string(tmp);
+        file_list_str += "</a>";
+        file_list_str+="</li>";
+    }
+    file_list_str += "</ul>";
+    list_html += file_list_str;
+    list_html += "</body>\n"
+                 "</html>";
+
+    return list_html;
+}
+
+vector<struct file_entry> get_file_list(string file) {
+    vector<struct file_entry> file_list;
+    DIR *dir;
+    struct dirent *ptr;
+    string file_without_slash;
+    for (int i = 0; i < file.size(); i++) {
+        if ((i == file.size() - 1) && file[i] == '/') {
+            break;
+        }
+        file_without_slash += file[i];
+    }
+
+    if ((dir = opendir(file_without_slash.c_str())) == NULL) {
+        perror("open dir error");
+        exit(1);
+    }
+    while ((ptr = readdir(dir)) != NULL) {
+        if (strcmp(ptr->d_name, ".") == 0 || strcmp(ptr->d_name, "..") == 0) {
+            continue;
+        } else if (ptr->d_type == 8) {     // file_entry
+            // todo 将char数组赋值给string类型，是规范写法吗？
+            string name = ptr->d_name;
+            struct file_entry one_file = {name, get_file_size(file + "/" + name)};
+            file_list.push_back(one_file);
+        } else if (ptr->d_type == 4) {     // dir
+            struct file_entry one_file = {ptr->d_name, 0};
+            file_list.push_back(one_file);
+            get_file_list(file + "/" + string(ptr->d_name));
+        } else if (ptr->d_type == 10) {    // link file_entry
+            struct file_entry one_file = {ptr->d_name, 0};
+            file_list.push_back(one_file);
+        }
+    }
+    // todo file_list是局部变量，这样返回有问题吗？若是char类型，我能肯定，是有问题的。
+    return file_list;
+}
+
+int get_file_size(string file) {
+    struct stat buf;
+    stat(file.c_str(), &buf);
+    int size = buf.st_size;
+    return size;
 }
