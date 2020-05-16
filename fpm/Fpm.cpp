@@ -13,8 +13,8 @@ DataFromFastCGIServer *Fpm::run(ParamsFromWebServer params_from_web_server) {
     create_packet(&one_packet, params_from_web_server);
     Network network;
     int socket = network.client_socket("127.0.0.1", CLIENT_PORT);
-//    send_packet(socket, one_packet);
-    send_packet_test(socket);
+    send_packet(socket, one_packet);
+//    send_packet_test(socket);
     DataFromFastCGIServer *data_from_fast_cgi_server = receive_data_from_server(socket);
     /******************************************************************
      * todo

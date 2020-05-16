@@ -240,7 +240,7 @@ Content-Type: image/jpeg
 <form action="./server.html" method="post">
     <p><input type="text" name="title"></p>
     <p><input type="text" name="age"></p>
-<!--    <p><input type="file" name="pic"></p>-->
+<!--    <p><input type="file_entry" name="pic"></p>-->
     <p><input type="submit"></p>
 </form>
 
@@ -286,7 +286,7 @@ title=%E7%A9%BF%E8%B6%8A%E6%97%B6%E7%A9%BA%E7%9A%84%E6%81%8B%E7%88%B1&age=%E5%BD
 <form action="./server.html" method="post" enctype="multipart/form-data">
     <p><input type="text" name="title"></p>
     <p><input type="text" name="age"></p>
-<!--    <p><input type="file" name="pic"></p>-->
+<!--    <p><input type="file_entry" name="pic"></p>-->
     <p><input type="submit"></p>
 </form>
 

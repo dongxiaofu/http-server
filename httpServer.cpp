@@ -8,11 +8,12 @@
 #include <fstream>
 #include <sstream>
 #include <sys/stat.h>
+#include <dirent.h>
 #include "Request.h"
 #include "fpm/Fpm.h"
 
 const string HTDOCS = "/Users/cg/data/code/wheel/cpp/http-server/htdocs";
-const int SERVER_PORT = 81;
+const int SERVER_PORT = 80;
 
 
 typedef struct {
@@ -49,6 +50,19 @@ bool is_dynamic_request(string filename);
 
 // 检查是不是\r\n
 bool is_lf_cr(string line);
+
+// 获取主机目录，用html列表展示
+string get_host_index(string dir);
+
+struct file_entry {
+    string name;
+    int size;
+};
+
+// 读取文件列表
+vector<struct file_entry> get_file_list(string file);
+
+int get_file_size(string file);
 
 int main() {
     int server_sock = -1;
@@ -391,9 +405,20 @@ void *accept_request(void *client_sock) {
         return nullptr;
     }
     if ("GET" == requet_method) {
-        int content_len;
-        bool is_picture = file_is_picture(full_file_path);
+        int content_len = -1;
         const char *content;
+        bool is_picture;
+        // 没有index.html时，显示网站列表
+        struct stat stat1;
+        stat(full_file_path.c_str(), &stat1);
+        if (S_ISDIR(stat1.st_mode)) {
+            string file_list_html = get_host_index(full_file_path);
+            content = file_list_html.c_str();
+            content_len = strlen(content);
+            is_picture = false;
+        } else {
+            is_picture = file_is_picture(full_file_path);
+        }
         /********************************************************************
          * 文本文件可以逐行读取，图片却不行。与处理HTTP请求行与实体主体一样，用不同方式读取。
          ********************************************************************/
@@ -403,11 +428,13 @@ void *accept_request(void *client_sock) {
             content = picture.data.c_str();
             content_len = picture.len;
         } else {
-            std::cout << "file:" << client_sock << full_file_path << std::endl;
-            string file_content = read_file(full_file_path);
-            content = file_content.c_str();
+            std::cout << "file_entry:" << client_sock << full_file_path << std::endl;
+            if (content_len < 0) {
+                string file_content = read_file(full_file_path);
+                content = file_content.c_str();
 //            content_len = sizeof(content);    // todo 这个方式，行不行？strlen呢？
-            content_len = file_content.size();
+                content_len = file_content.size();
+            }
         }
 
         if (content_len > 0) {
@@ -419,23 +446,31 @@ void *accept_request(void *client_sock) {
             FILE_META file_meta;
             file_meta.size = buf2.st_size;
             file_meta.name = request.file_path;
+            int suffix_len;
             const char *suffix = strrchr(request.file_path.c_str(), '.');
-            // todo 也应该需要加判断的，防止指针越界。
-            suffix++;
+            // 需要加判断的，防止指针越界。
+            if (suffix == NULL || strlen(suffix) == 0) {
+                suffix_len = 0;
+                suffix = "";
+            } else {
+                suffix++;
+                // 针对执行suffix++前，suffix是.的情况
+                suffix_len = strlen(suffix);
+            }
             file_meta.suffix = suffix;
 
             string head =
                     "Server: cg-http-server/0.1\r\n"
                     "Connection: keep-alive\r\n";
-            if (strcasecmp(file_meta.suffix, "jpg") == 0) {
+            if (suffix_len == 0) {  // 比如，当uri是一个目录时
+                head += "Content-Type:text/html\r\n";
+                send(tmp, head.c_str(), head.size(), 0);
+            } else if (strcasecmp(file_meta.suffix, "jpg") == 0) {
                 head += "Content-Type: image/";
                 head += "jpeg\r\n";
             } else if (strcasecmp(file_meta.suffix, "png") == 0) {
                 head += "Content-Type: image/";
                 head += "png\r\n";
-            } else {
-                head += "Content-Type:text/html\r\n";
-                send(tmp, head.c_str(), head.size(), 0);
             }
 
             if (is_picture) {
@@ -592,8 +627,15 @@ string read_body(int socket_fd, int content_length) {
 }
 
 bool is_dynamic_request(string filename) {
+    if (filename.size() == 0) {
+        return false;
+    }
     // 不明白为何要加上const，ide提示需要这么做。
     const char *suffix = strrchr(filename.c_str(), '.');
+    // 没有这个判断，下面的suffix++越界
+    if (suffix == NULL || strlen(suffix) == 0) {
+        return false;
+    }
     suffix++;
     if (strcasecmp(suffix, "php") == 0) {
         return true;
@@ -684,4 +726,77 @@ PICTURE read_picture3(string file_path) {
     delete[] buffer;
 
     return picture;
+}
+
+string get_host_index(string dir) {
+    string list_html = "<!DOCTYPE html>\n"
+                       "<html lang=\"en\">\n"
+                       "<head>\n"
+                       "    <meta charset=\"UTF-8\">\n"
+                       "    <title>网站列表</title>\n"
+                       "</head>\n"
+                       "<body>";
+    vector<struct file_entry> file_list = get_file_list(dir);
+    string file_list_str = "<ul>";
+    for (vector<struct file_entry>::iterator it = file_list.begin(); it < file_list.end(); it++) {
+        string name = (*it).name;
+        int size = (*it).size;
+        file_list_str += "<li>";
+        file_list_str += "<a href=\"/" + name + "\">" + name + "---------------";
+        char tmp[10];
+        sprintf(tmp, "%d", size);
+        file_list_str += string(tmp);
+        file_list_str += "</a>";
+        file_list_str+="</li>";
+    }
+    file_list_str += "</ul>";
+    list_html += file_list_str;
+    list_html += "</body>\n"
+                 "</html>";
+
+    return list_html;
+}
+
+vector<struct file_entry> get_file_list(string file) {
+    vector<struct file_entry> file_list;
+    DIR *dir;
+    struct dirent *ptr;
+    string file_without_slash;
+    for (int i = 0; i < file.size(); i++) {
+        if ((i == file.size() - 1) && file[i] == '/') {
+            break;
+        }
+        file_without_slash += file[i];
+    }
+
+    if ((dir = opendir(file_without_slash.c_str())) == NULL) {
+        perror("open dir error");
+        exit(1);
+    }
+    while ((ptr = readdir(dir)) != NULL) {
+        if (strcmp(ptr->d_name, ".") == 0 || strcmp(ptr->d_name, "..") == 0) {
+            continue;
+        } else if (ptr->d_type == 8) {     // file_entry
+            // todo 将char数组赋值给string类型，是规范写法吗？
+            string name = ptr->d_name;
+            struct file_entry one_file = {name, get_file_size(file + "/" + name)};
+            file_list.push_back(one_file);
+        } else if (ptr->d_type == 4) {     // dir
+            struct file_entry one_file = {ptr->d_name, 0};
+            file_list.push_back(one_file);
+            get_file_list(file + "/" + string(ptr->d_name));
+        } else if (ptr->d_type == 10) {    // link file_entry
+            struct file_entry one_file = {ptr->d_name, 0};
+            file_list.push_back(one_file);
+        }
+    }
+    // todo file_list是局部变量，这样返回有问题吗？若是char类型，我能肯定，是有问题的。
+    return file_list;
+}
+
+int get_file_size(string file) {
+    struct stat buf;
+    stat(file.c_str(), &buf);
+    int size = buf.st_size;
+    return size;
 }
