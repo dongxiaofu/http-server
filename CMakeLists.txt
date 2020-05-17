@@ -17,6 +17,6 @@ add_executable(http-server
         fpm/Fcgi.cpp
         fpm/Fcgi.h
         fpm/Fpm.cpp
-        fpm/Fpm.h fpm/Network.cpp fpm/Network.h)
+        fpm/Fpm.h fpm/Network.cpp fpm/Network.h thread_pool/cpool.h thread_pool/cpool.cpp)
 
 add_executable(test demo/cout_demo.cpp)
