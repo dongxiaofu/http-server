@@ -471,6 +471,9 @@ void *accept_request(void *client_sock) {
             } else if (strcasecmp(file_meta.suffix, "png") == 0) {
                 head += "Content-Type: image/";
                 head += "png\r\n";
+            }else{  // 默认是text/html
+                head += "Content-Type:text/html\r\n";
+                send(tmp, head.c_str(), head.size(), 0);
             }
 
             if (is_picture) {
@@ -768,7 +771,7 @@ vector<struct file_entry> get_file_list(string file) {
         }
         file_without_slash += file[i];
     }
-
+    // 文件目录为/a或/a/都可以。todo /a/需要验证。
     if ((dir = opendir(file_without_slash.c_str())) == NULL) {
         perror("open dir error");
         exit(1);
