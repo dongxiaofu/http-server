@@ -52,7 +52,7 @@ bool is_dynamic_request(string filename);
 bool is_lf_cr(string line);
 
 // 获取主机目录，用html列表展示
-string get_host_index(string dir);
+string get_host_index(string dir, string uri);
 
 struct file_entry {
     string name;
@@ -412,7 +412,7 @@ void *accept_request(void *client_sock) {
         struct stat stat1;
         stat(full_file_path.c_str(), &stat1);
         if (S_ISDIR(stat1.st_mode)) {
-            string file_list_html = get_host_index(full_file_path);
+            string file_list_html = get_host_index(full_file_path, request.file_path);
             content = file_list_html.c_str();
             content_len = strlen(content);
             is_picture = false;
@@ -471,7 +471,7 @@ void *accept_request(void *client_sock) {
             } else if (strcasecmp(file_meta.suffix, "png") == 0) {
                 head += "Content-Type: image/";
                 head += "png\r\n";
-            }else{  // 默认是text/html
+            } else {  // 默认是text/html
                 head += "Content-Type:text/html\r\n";
                 send(tmp, head.c_str(), head.size(), 0);
             }
@@ -731,7 +731,7 @@ PICTURE read_picture3(string file_path) {
     return picture;
 }
 
-string get_host_index(string dir) {
+string get_host_index(string dir, string uri) {
     string list_html = "<!DOCTYPE html>\n"
                        "<html lang=\"en\">\n"
                        "<head>\n"
@@ -745,12 +745,29 @@ string get_host_index(string dir) {
         string name = (*it).name;
         int size = (*it).size;
         file_list_str += "<li>";
-        file_list_str += "<a href=\"/" + name + "\">" + name + "---------------";
+        if (uri.size() && (uri != "/")) {
+            string uri_trimed_slash;
+            int size = uri.size();
+            for (int i = 0; i < size; i++) {
+                // 没起作用
+//                if (i == 0 && uri[i] == '/') {
+//                    continue;
+//                }
+                if (uri[size - 2] == '/') {
+                    continue;
+                }
+                uri_trimed_slash += uri[i];
+            }
+            file_list_str += "<a href=\"" + uri + "/" + name + "\">" + name;
+        } else {
+            file_list_str += "<a href=\"/" + name + "\">" + name;
+        }
+        file_list_str += "</a>";
+        file_list_str += "---------------";
         char tmp[10];
         sprintf(tmp, "%d", size);
         file_list_str += string(tmp);
-        file_list_str += "</a>";
-        file_list_str+="</li>";
+        file_list_str += "</li>";
     }
     file_list_str += "</ul>";
     list_html += file_list_str;
