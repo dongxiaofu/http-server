@@ -11,6 +11,7 @@
 #include <dirent.h>
 #include "Request.h"
 #include "fpm/Fpm.h"
+#include "thread_pool/cpool.h"
 
 const string HTDOCS = "/Users/cg/data/code/wheel/cpp/http-server/htdocs";
 const int SERVER_PORT = 80;
@@ -72,6 +73,7 @@ int main() {
     int client_name_len = sizeof(client_name);
     server_sock = startup(SERVER_PORT);
     std::cout << "httpd running on port 80" << std::endl;
+    cpool cpool_t;
     while (1) {
         try {
             client_sock = accept(server_sock, (struct sockaddr *) &client_name, (socklen_t *) &client_name_len);
@@ -89,9 +91,15 @@ int main() {
             }
         }
         void *tmp = (void *) (long) client_sock;
-        if (pthread_create(&newthread, NULL, accept_request, tmp) != 0) {
-            perror("pthread_create");
-        }
+
+        c_pool_t *pools = new c_pool_t;
+        pools->max_thread_num=5;
+        cpool_t.create_pools(&pools,5);
+        cpool_t.add_task_to_pools(pools, accept_request, tmp);
+//
+//        if (pthread_create(&newthread, NULL, accept_request, tmp) != 0) {
+//            perror("pthread_create");
+//        }
     }
 
     close(server_sock);

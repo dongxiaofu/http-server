@@ -20,11 +20,11 @@ typedef struct c_pool {
     c_work_t *head;
 } c_pool_t;
 
+void * run(void *args);
+
 class cpool {
 public:
-    void create_pools(int max_thread_num);
+    void create_pools(c_pool_t **pools, int max_thread_num);
 
     void add_task_to_pools(c_pool_t *pool, void *(*run)(void *), void *args);
-
-    void run(string args);
 };
